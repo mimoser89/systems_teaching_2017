@@ -7391,6 +7391,9 @@ void printUsage() {
 uint64_t selfie() {
   uint64_t* option;
 
+  print((uint64_t*) "This is Michael Moser's Selfie.");
+  println();
+
   if (numberOfRemainingArguments() == 0)
     printUsage();
   else {
