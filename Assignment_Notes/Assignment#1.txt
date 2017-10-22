@@ -40,6 +40,7 @@ uint64_t selfie_run(uint64_t machine) {
   .
   .
 }
+
 changes:
 if the machine is doubleMipster, then create the same context again and make sure to setNextContext. This is because then you can go with getNextContext from the last do the first. Also set the COUNTER_RUNNING_MIPSTER to 2.
 
@@ -101,6 +102,8 @@ uint64_t doubleMipster(uint64_t* toContext) {
     }
   }
 }
+
+
 changes:
 added this procedure
 
