@@ -1221,6 +1221,7 @@ uint64_t isBootLevelZero();
 uint64_t handleSystemCalls(uint64_t* context);
 
 uint64_t mipster(uint64_t* toContext);
+uint64_t doubleMipster(uint64_t* toContext);
 uint64_t minster(uint64_t* toContext);
 uint64_t mobster(uint64_t* toContext);
 uint64_t hypster(uint64_t* toContext);
@@ -1234,6 +1235,8 @@ uint64_t* MY_CONTEXT = (uint64_t*) 0;
 
 uint64_t DONOTEXIT = 0;
 uint64_t EXIT = 1;
+uint64_t EXIT_ONE_CONTEXT = 2;
+uint64_t COUNTER_RUNNING_MIPSTER;
 
 // signed 32-bit exit codes [int]
 uint64_t EXITCODE_NOERROR = 0;
@@ -1251,6 +1254,7 @@ uint64_t MIPSTER = 2;
 uint64_t MOBSTER = 3;
 
 uint64_t HYPSTER = 4;
+uint64_t DOUBLEMIPSTER = 5;
 
 // ------------------------ GLOBAL VARIABLES -----------------------
 
@@ -5149,7 +5153,7 @@ void doSwitch(uint64_t* toContext, uint64_t timeout) {
 
   fromContext = currentContext;
 
-  restoreContext(toContext);
+  restoreContext(toContext); //wenn kein parent nichts zu tun
 
   // restore machine state
   pc        = getPC(toContext);
@@ -6673,7 +6677,6 @@ uint64_t isBootLevelZero() {
 
 uint64_t handleSystemCalls(uint64_t* context) {
   uint64_t v0;
-
   if (getException(context) == EXCEPTION_SYSCALL) {
     v0 = *(getRegs(context)+REG_V0);
 
@@ -6686,9 +6689,14 @@ uint64_t handleSystemCalls(uint64_t* context) {
     else if (v0 == SYSCALL_OPEN)
       implementOpen(context);
     else if (v0 == SYSCALL_EXIT) {
+
+      //if there are more then one contexts running
+      //return the new variable EXIT_ONE_CONTEXT
+      if(COUNTER_RUNNING_MIPSTER > 1) {
+        return EXIT_ONE_CONTEXT;
+      }
       implementExit(context);
 
-      // TODO: exit only if all contexts have exited
       return EXIT;
     } else {
       print(selfieName);
@@ -6733,6 +6741,7 @@ uint64_t mipster(uint64_t* toContext) {
       toContext = getParent(fromContext);
 
       timeout = TIMEROFF;
+
     } else {
        // we are the parent in charge of handling exceptions
 
@@ -6747,6 +6756,64 @@ uint64_t mipster(uint64_t* toContext) {
       toContext = fromContext;
 
       timeout = TIMESLICE;
+    }
+  }
+}
+
+uint64_t doubleMipster(uint64_t* toContext) {
+
+  uint64_t timeout;
+  uint64_t* fromContext;
+  uint64_t tempHandleSystemCall;
+
+  print((uint64_t*) "double_mipster");
+  println();
+
+  //debug_switch shows the context change at the console
+  debug_switch = 1;
+
+  // only one instruction per context will be executed
+  timeout = 1;
+
+  while (1) {
+    //first time switches to the self context
+    fromContext = mipster_switch(toContext, timeout);
+
+    if (getParent(fromContext) != MY_CONTEXT) {
+      // switch to parent which is in charge of handling exceptions
+      toContext = getParent(fromContext);
+
+      timeout = TIMEROFF;
+    } else {
+       // we are the parent in charge of handling exceptions
+
+      if (getException(fromContext) == EXCEPTION_PAGEFAULT){
+        // TODO: use this table to unmap and reuse frames
+        mapPage(fromContext, getFaultingPage(fromContext), (uint64_t) palloc());
+      }
+
+      else {
+
+        tempHandleSystemCall = handleSystemCalls(fromContext);
+
+        //checks if all contexts exited
+        if(tempHandleSystemCall == EXIT)
+          return getExitCode(fromContext);
+        //checks if only one context exited
+        else if(tempHandleSystemCall == EXIT_ONE_CONTEXT){
+          COUNTER_RUNNING_MIPSTER = COUNTER_RUNNING_MIPSTER - 1;
+          //should we print every exit?
+          implementExit(fromContext);
+        }
+
+      }
+
+      setException(fromContext, EXCEPTION_NOEXCEPTION);
+
+      //set next context
+      toContext = getNextContext(fromContext);
+
+      timeout = 1;
     }
   }
 }
@@ -6915,6 +6982,7 @@ uint64_t mixter(uint64_t* toContext, uint64_t mix) {
 
 uint64_t selfie_run(uint64_t machine) {
   uint64_t exitCode;
+  uint64_t* testContext;
 
   if (binaryLength == 0) {
     print(selfieName);
@@ -6923,7 +6991,7 @@ uint64_t selfie_run(uint64_t machine) {
 
     return -1;
   }
-
+  //peek Argument lasst Argument darauf
   initMemory(atoi(peekArgument()));
 
   interpret = 1;
@@ -6931,7 +6999,9 @@ uint64_t selfie_run(uint64_t machine) {
   resetInterpreter();
   resetMicrokernel();
 
+   //MY_CONTEXT = 0
   createContext(MY_CONTEXT, 0);
+  //createContext allocates memory for new context
 
   up_loadBinary(currentContext);
 
@@ -6949,6 +7019,25 @@ uint64_t selfie_run(uint64_t machine) {
 
   if (machine == MIPSTER)
     exitCode = mipster(currentContext);
+  else if (machine == DOUBLEMIPSTER) {
+    COUNTER_RUNNING_MIPSTER = 2;
+
+    createContext(MY_CONTEXT,0);
+
+    //make cycle, used context is always the last created context
+    setNextContext(currentContext, usedContexts);
+
+    currentContext = getNextContext(currentContext);
+
+    up_loadBinary(currentContext);
+
+    setArgument(binaryName);
+
+    up_loadArguments(currentContext, numberOfRemainingArguments(), remainingArguments());
+
+    exitCode = doubleMipster(currentContext);
+  }
+
   else if (machine == MINSTER)
     exitCode = minster(currentContext);
   else if (machine == MOBSTER)
@@ -7384,7 +7473,7 @@ void printUsage() {
   print(selfieName);
   print((uint64_t*) ": usage: ");
   print((uint64_t*) "selfie { -c { source } | -o binary | -s assembly | -l binary | -sat dimacs } ");
-  print((uint64_t*) "[ ( -m | -d | -y | -min | -mob ) size ... ]");
+  print((uint64_t*) "[ ( -m | -x | -d | -y | -min | -mob ) size ... ]");
   println();
 }
 
@@ -7423,6 +7512,8 @@ uint64_t selfie() {
         selfie_sat();
       else if (stringCompare(option, (uint64_t*) "-m"))
         return selfie_run(MIPSTER);
+      else if (stringCompare(option, (uint64_t*) "-x"))
+        return selfie_run(DOUBLEMIPSTER);
       else if (stringCompare(option, (uint64_t*) "-d")) {
         debug = 1;
 
