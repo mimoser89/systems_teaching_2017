@@ -19,6 +19,7 @@ test: selfie
 	diff -q selfie3.s selfie4.s
 	diff -q selfie1.m selfie3.m
 	diff -q selfie1.s selfie3.s
+	./selfie -c selfie.c -m 4 -c manuscript/code/hello-world.c -x 2
 
 # Test SAT solver
 sat: selfie
