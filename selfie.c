@@ -87,6 +87,8 @@ uint64_t  read(uint64_t fd, uint64_t* buffer, uint64_t bytesToRead);
 uint64_t  write(uint64_t fd, uint64_t* buffer, uint64_t bytesToWrite);
 uint64_t  open(uint64_t* filename, uint64_t flags, uint64_t mode);
 uint64_t* malloc(uint64_t size);
+void lock();
+void unlock();
 
 // -----------------------------------------------------------------
 // ----------------------- LIBRARY PROCEDURES ----------------------
@@ -796,7 +798,10 @@ void selfie_output();
 
 uint64_t* touch(uint64_t* memory, uint64_t length);
 
-void selfie_load();
+//Assignment #2
+void createDifferentBinaryList();
+void selfie_load(uint64_t numberOfBinary);
+//end Assignment #2
 
 // ------------------------ GLOBAL CONSTANTS -----------------------
 
@@ -805,12 +810,17 @@ uint64_t maxBinaryLength = 262144; // 256KB
 // ------------------------ GLOBAL VARIABLES -----------------------
 
 uint64_t* binary = (uint64_t*) 0; // binary of emitted instructions
+uint64_t* binary2 = (uint64_t*) 0; // binary of emitted instructions
 
 uint64_t binaryLength = 0; // length of binary in bytes incl. globals & strings
 
 uint64_t codeLength = 0; // length of code portion of binary in bytes
 
 uint64_t* binaryName = (uint64_t*) 0; // file name of binary
+//Assignment #2
+uint64_t* xth_binary = (uint64_t*) 0; // file name of xth-binary
+uint64_t HAS_DIFFERENT_BINARIES = 0; // are there different binarys?
+//end Assignment #2
 
 uint64_t* sourceLineNumber = (uint64_t*) 0; // source line number per emitted instruction
 
@@ -836,6 +846,17 @@ void implementOpen(uint64_t* context);
 
 void emitMalloc();
 uint64_t implementMalloc(uint64_t* context);
+
+// begin Assignment #2
+void emitLock();
+
+uint64_t hasLock(uint64_t* context);
+void wait(uint64_t* context);
+void implementLock(uint64_t* context);
+
+void emitUnlock();
+void implementUnlock(uint64_t* context);
+//end Assignment #2
 
 // ------------------------ GLOBAL CONSTANTS -----------------------
 
@@ -866,6 +887,13 @@ uint64_t* mipster_switch(uint64_t* toContext, uint64_t timeout);
 uint64_t SYSCALL_SWITCH = 4901;
 
 uint64_t debug_switch = 0;
+
+//Assignment 2
+uint64_t SYSCALL_LOCK = 4006;
+uint64_t SYSCALL_UNLOCK = 4007;
+
+uint64_t* CURRENT_LOCKED_CONTEXT = (uint64_t*) 0;
+//end Assignment 2
 
 // *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~
 // -----------------------------------------------------------------
@@ -1102,6 +1130,7 @@ uint64_t* deleteContext(uint64_t* context, uint64_t* from);
 // | 14 | parent         | context that created this context
 // | 15 | virtualContext | virtual context address
 // | 16 | name           | binary name loaded into context
+// | 17 | isLock         | 1 if context is locked, 0 otherwise
 // +----+----------------+
 
 uint64_t nextContext(uint64_t* context)    { return (uint64_t) context; }
@@ -1121,6 +1150,7 @@ uint64_t ExitCode(uint64_t* context)       { return (uint64_t) (context + 13); }
 uint64_t Parent(uint64_t* context)         { return (uint64_t) (context + 14); }
 uint64_t VirtualContext(uint64_t* context) { return (uint64_t) (context + 15); }
 uint64_t Name(uint64_t* context)           { return (uint64_t) (context + 16); }
+uint64_t Lock(uint64_t* context)           { return (uint64_t) (context + 17); }
 
 uint64_t* getNextContext(uint64_t* context)    { return (uint64_t*) *context; }
 uint64_t* getPrevContext(uint64_t* context)    { return (uint64_t*) *(context + 1); }
@@ -1139,6 +1169,7 @@ uint64_t  getExitCode(uint64_t* context)       { return             *(context + 
 uint64_t* getParent(uint64_t* context)         { return (uint64_t*) *(context + 14); }
 uint64_t* getVirtualContext(uint64_t* context) { return (uint64_t*) *(context + 15); }
 uint64_t* getName(uint64_t* context)           { return (uint64_t*) *(context + 16); }
+uint64_t  getIsLock(uint64_t* context)         { return             *(context + 17); }
 
 void setNextContext(uint64_t* context, uint64_t* next)     { *context        = (uint64_t) next; }
 void setPrevContext(uint64_t* context, uint64_t* prev)     { *(context + 1)  = (uint64_t) prev; }
@@ -1157,6 +1188,7 @@ void setExitCode(uint64_t* context, uint64_t code)         { *(context + 13) = c
 void setParent(uint64_t* context, uint64_t* parent)        { *(context + 14) = (uint64_t) parent; }
 void setVirtualContext(uint64_t* context, uint64_t* vctxt) { *(context + 15) = (uint64_t) vctxt; }
 void setName(uint64_t* context, uint64_t* name)            { *(context + 16) = (uint64_t) name; }
+void setIsLocked(uint64_t* context, uint64_t isLock)       { *(context + 17) = isLock; }
 
 // -----------------------------------------------------------------
 // -------------------------- MICROKERNEL --------------------------
@@ -1221,13 +1253,16 @@ uint64_t isBootLevelZero();
 uint64_t handleSystemCalls(uint64_t* context);
 
 uint64_t mipster(uint64_t* toContext);
-uint64_t doubleMipster(uint64_t* toContext);
+uint64_t xMipster(uint64_t* toContext);
 uint64_t minster(uint64_t* toContext);
 uint64_t mobster(uint64_t* toContext);
 uint64_t hypster(uint64_t* toContext);
 uint64_t mixter(uint64_t* toContext, uint64_t mix);
 
+//Assignment #2
 uint64_t selfie_run(uint64_t machine);
+uint64_t selfie_run_different_Binaries(uint64_t machine);
+//end Assignment #2
 
 // ------------------------ GLOBAL CONSTANTS -----------------------
 
@@ -1254,7 +1289,7 @@ uint64_t MIPSTER = 2;
 uint64_t MOBSTER = 3;
 
 uint64_t HYPSTER = 4;
-uint64_t DOUBLEMIPSTER = 5;
+uint64_t XMIPSTER = 5;
 
 // ------------------------ GLOBAL VARIABLES -----------------------
 
@@ -4075,11 +4110,17 @@ void selfie_compile() {
   // if exit call in main is missing
   emitExit();
   emitRead();
+
+
   emitWrite();
+
   emitOpen();
   emitMalloc();
 
   emitSwitch();
+
+  emitLock();
+  emitUnlock();
 
   while (link) {
     if (numberOfRemainingArguments() == 0)
@@ -4623,11 +4664,45 @@ uint64_t* touch(uint64_t* memory, uint64_t length) {
   return memory;
 }
 
-void selfie_load() {
+//Assignment #2
+void createDifferentBinaryList() {
+  uint64_t* tempArgument;
+  uint64_t breakWhile;
+  uint64_t i;
+
+  breakWhile = 0;
+  i = 0;
+
+  //maximum different Binarys set to ten
+  xth_binary = malloc(10*SIZEOFUINT64STAR);
+  tempArgument = peekArgument();
+
+  while(breakWhile == 0) {
+    if (stringCompare(tempArgument, (uint64_t*) "-x")){
+      breakWhile = 1;
+
+    }
+    else {
+      *(xth_binary + i) = (uint64_t)getArgument();
+      COUNTER_RUNNING_MIPSTER = COUNTER_RUNNING_MIPSTER + 1;
+      tempArgument = peekArgument();
+      i = i + 1;
+    }
+
+  }
+}
+//end Assignment #2
+
+//Assignment #2
+void selfie_load(uint64_t numberOfBinary) {
   uint64_t fd;
   uint64_t numberOfReadBytes;
-
-  binaryName = getArgument();
+  if(numberOfBinary == -1)
+    binaryName = getArgument();
+  else {
+    binaryName = (uint64_t*)*(xth_binary + numberOfBinary);
+  }
+  //end Assignment #2
 
   // assert: binaryName is mapped and not longer than maxFilenameLength
 
@@ -4847,6 +4922,7 @@ void implementRead(uint64_t* context) {
 }
 
 void emitWrite() {
+
   createSymbolTableEntry(LIBRARY_TABLE, (uint64_t*) "write", 0, PROCEDURE, UINT64_T, 0, binaryLength);
 
   emitIFormat(OP_LD, REG_SP, REG_A2, 0); // size
@@ -4862,6 +4938,7 @@ void emitWrite() {
   emitRFormat(OP_SPECIAL, 0, 0, 0, FCT_SYSCALL);
 
   emitRFormat(OP_SPECIAL, REG_RA, 0, 0, FCT_JR);
+
 }
 
 void implementWrite(uint64_t* context) {
@@ -5025,7 +5102,6 @@ uint64_t down_loadString(uint64_t* table, uint64_t vaddr, uint64_t* s) {
       }
     }
   }
-
   return 0;
 }
 
@@ -5126,6 +5202,72 @@ uint64_t implementMalloc(uint64_t* context) {
   }
 }
 
+//Assignment #2
+void emitLock() {
+
+  createSymbolTableEntry(LIBRARY_TABLE, (uint64_t*) "lock", 0, PROCEDURE, VOID_T, 0, binaryLength);
+
+  emitIFormat(OP_DADDIU, REG_ZR, REG_V0, SYSCALL_LOCK);
+  emitRFormat(OP_SPECIAL, 0, 0, 0, FCT_SYSCALL);
+
+  // jump back to caller, return value is in REG_V0
+  emitRFormat(OP_SPECIAL, REG_RA, 0, 0, FCT_JR);
+}
+//end Assignment #2
+
+//Assignment #2
+void implementLock(uint64_t* context){
+
+  //if there is no locked context
+  if(CURRENT_LOCKED_CONTEXT == (uint64_t*) 0)
+    CURRENT_LOCKED_CONTEXT = context;
+
+}
+//end Assignment #2
+
+//Assignment #2
+void emitUnlock() {
+
+  createSymbolTableEntry(LIBRARY_TABLE, (uint64_t*) "unlock", 0, PROCEDURE, VOID_T, 0, binaryLength);
+  emitIFormat(OP_DADDIU, REG_ZR, REG_V0, SYSCALL_UNLOCK);
+  emitRFormat(OP_SPECIAL, 0, 0, 0, FCT_SYSCALL);
+
+  // jump back to caller, return value is in REG_V0
+  emitRFormat(OP_SPECIAL, REG_RA, 0, 0, FCT_JR);
+}
+//end Assignment #2
+
+//Assignment #2
+void implementUnlock(uint64_t* context){
+
+  if(CURRENT_LOCKED_CONTEXT == context)
+    CURRENT_LOCKED_CONTEXT = (uint64_t*) 0;
+}
+//end Assignment #2
+
+//Assignment #2
+uint64_t hasLock(uint64_t* context) {
+  if(CURRENT_LOCKED_CONTEXT == (uint64_t*) 0)
+      return 1;
+  else {
+    if(CURRENT_LOCKED_CONTEXT == context)
+      return 1;
+  }
+  return 0;
+}
+//end Assignment #2
+
+//Assignment #2
+void wait(uint64_t* context) {
+  uint64_t tempPC;
+
+  tempPC = getPC(context);
+  tempPC = tempPC - 2*INSTRUCTIONSIZE;
+
+  setPC(context,tempPC);
+}
+//end Assignment #2
+
 // -----------------------------------------------------------------
 // ----------------------- HYPSTER SYSCALLS ------------------------
 // -----------------------------------------------------------------
@@ -5153,6 +5295,7 @@ void doSwitch(uint64_t* toContext, uint64_t timeout) {
 
   fromContext = currentContext;
 
+
   restoreContext(toContext); //wenn kein parent nichts zu tun
 
   // restore machine state
@@ -5176,8 +5319,12 @@ void doSwitch(uint64_t* toContext, uint64_t timeout) {
     print(selfieName);
     print((uint64_t*) ": switched from context ");
     printHexadecimal((uint64_t) fromContext, 8);
+    print((uint64_t*) " Name: ");
+    print((uint64_t*) getName(fromContext));
     print((uint64_t*) " to context ");
     printHexadecimal((uint64_t) toContext, 8);
+    print((uint64_t*) " Name: ");
+    print((uint64_t*) getName(toContext));
     if (signedGreaterThan(timeout, -1)) {
       print((uint64_t*) " to execute ");
       printInteger(timeout);
@@ -5195,6 +5342,7 @@ void implementSwitch() {
 }
 
 uint64_t* mipster_switch(uint64_t* toContext, uint64_t timeout) {
+
   doSwitch(toContext, timeout);
 
   runUntilException();
@@ -5672,9 +5820,15 @@ void fct_syscall() {
 
     if (*(registers+REG_V0) == SYSCALL_SWITCH)
       implementSwitch();
-    else
+    else{
       throwException(EXCEPTION_SYSCALL, 0);
+    }
+
   }
+  // if(debug_switch) {
+  //   printFunction(function);
+  //   println();
+  // }
 }
 
 void op_daddiu() {
@@ -5713,6 +5867,16 @@ void op_daddiu() {
     }
     println();
   }
+
+  // if (debug_switch) {
+  //   if (interpret) {
+  //     print((uint64_t*) " -> ");
+  //     printRegister(rt);
+  //     print((uint64_t*) "=");
+  //     printInteger(*(registers+rt));
+  //   }
+  //   println();
+  // }
 }
 
 void op_ld() {
@@ -6005,6 +6169,22 @@ void execute() {
     print((uint64_t*) ": ");
   }
 
+  // if (debug_switch) {
+  //   if (interpret) {
+  //     print(getName(currentContext));
+  //     print((uint64_t*) ": $pc=");
+  //   }
+  //   printHexadecimal(pc, 0);
+  //   if (sourceLineNumber != (uint64_t*) 0) {
+  //     print((uint64_t*) "(~");
+  //     printInteger(*(sourceLineNumber + pc / INSTRUCTIONSIZE));
+  //     print((uint64_t*) ")");
+  //   }
+  //   print((uint64_t*) ": ");
+  //   printHexadecimal(ir, 8);
+  //   print((uint64_t*) ": ");
+  // }
+
   if (opcode == OP_SPECIAL) {
     if (function == FCT_NOP)
       fct_nop();
@@ -6211,7 +6391,7 @@ uint64_t* allocateContext(uint64_t* parent, uint64_t* vctxt, uint64_t* in) {
   uint64_t* context;
 
   if (freeContexts == (uint64_t*) 0)
-    context = smalloc(6 * SIZEOFUINT64STAR + 11 * SIZEOFUINT64);
+    context = smalloc(6 * SIZEOFUINT64STAR + 12 * SIZEOFUINT64);
   else {
     context = freeContexts;
 
@@ -6254,6 +6434,7 @@ uint64_t* allocateContext(uint64_t* parent, uint64_t* vctxt, uint64_t* in) {
   setVirtualContext(context, vctxt);
 
   setName(context, (uint64_t*) 0);
+  setIsLocked(context,0);
 
   return context;
 }
@@ -6684,17 +6865,38 @@ uint64_t handleSystemCalls(uint64_t* context) {
       return implementMalloc(context);
     else if (v0 == SYSCALL_READ)
       implementRead(context);
-    else if (v0 == SYSCALL_WRITE)
-      implementWrite(context);
+    //Assignment #2
+    else if (v0 == SYSCALL_WRITE){
+      if(hasLock(context))
+        implementWrite(context);
+      else
+        wait(context);
+    }
+    //end Assignment #2
     else if (v0 == SYSCALL_OPEN)
       implementOpen(context);
+    //Assignment #2
+    else if (v0 == SYSCALL_LOCK){
+      if(hasLock(context))
+        implementLock(context);
+      else
+        wait(context);
+    }
+    //end Assignment #2
+    //Assignment #2
+    else if (v0 == SYSCALL_UNLOCK){
+      if(hasLock(context))
+        implementUnlock(context);
+      else
+        wait(context);
+    }
+    //end Assignment #2
     else if (v0 == SYSCALL_EXIT) {
-
       //if there are more then one contexts running
       //return the new variable EXIT_ONE_CONTEXT
-      if(COUNTER_RUNNING_MIPSTER > 1) {
-        return EXIT_ONE_CONTEXT;
-      }
+       if(COUNTER_RUNNING_MIPSTER > 1) {
+         return EXIT_ONE_CONTEXT;
+       }
       implementExit(context);
 
       return EXIT;
@@ -6715,9 +6917,12 @@ uint64_t handleSystemCalls(uint64_t* context) {
     print((uint64_t*) " throws uncaught ");
     printException(getException(context), getFaultingPage(context));
     println();
+    println();
+    println();
+    println();
+    printInteger(v0);
 
     setExitCode(context, EXITCODE_UNCAUGHTEXCEPTION);
-
     return EXIT;
   }
 
@@ -6760,22 +6965,25 @@ uint64_t mipster(uint64_t* toContext) {
   }
 }
 
-uint64_t doubleMipster(uint64_t* toContext) {
+uint64_t xMipster(uint64_t* toContext) {
 
   uint64_t timeout;
   uint64_t* fromContext;
   uint64_t tempHandleSystemCall;
+  uint64_t hasExit;
 
-  print((uint64_t*) "double_mipster");
+  print((uint64_t*) "xMipster");
   println();
 
   //debug_switch shows the context change at the console
-  debug_switch = 1;
+  debug_switch = 0;
 
   // only one instruction per context will be executed
   timeout = 1;
 
   while (1) {
+
+    hasExit = 0;
     //first time switches to the self context
     fromContext = mipster_switch(toContext, timeout);
 
@@ -6793,27 +7001,32 @@ uint64_t doubleMipster(uint64_t* toContext) {
       }
 
       else {
-
         tempHandleSystemCall = handleSystemCalls(fromContext);
 
         //checks if all contexts exited
         if(tempHandleSystemCall == EXIT)
           return getExitCode(fromContext);
         //checks if only one context exited
+        //Assignment #2
         else if(tempHandleSystemCall == EXIT_ONE_CONTEXT){
           COUNTER_RUNNING_MIPSTER = COUNTER_RUNNING_MIPSTER - 1;
           //should we print every exit?
           implementExit(fromContext);
+          toContext = getNextContext(fromContext);
+          deleteContext(fromContext,0);
+          hasExit = 1;
+          if(COUNTER_RUNNING_MIPSTER == 1) {
+            toContext = getNextContext(toContext);
+          }
         }
-
       }
-
-      setException(fromContext, EXCEPTION_NOEXCEPTION);
-
-      //set next context
-      toContext = getNextContext(fromContext);
-
+      if(hasExit==0) {
+        setException(fromContext, EXCEPTION_NOEXCEPTION);
+        //set next context
+        toContext = getNextContext(fromContext);
+      }
       timeout = 1;
+      //end Assignment #2
     }
   }
 }
@@ -6981,8 +7194,13 @@ uint64_t mixter(uint64_t* toContext, uint64_t mix) {
 }
 
 uint64_t selfie_run(uint64_t machine) {
+
   uint64_t exitCode;
-  uint64_t* testContext;
+  uint64_t* firstContext;
+  uint64_t* contextName;
+
+  uint64_t i;
+  i = 1;
 
   if (binaryLength == 0) {
     print(selfieName);
@@ -6991,6 +7209,7 @@ uint64_t selfie_run(uint64_t machine) {
 
     return -1;
   }
+
   //peek Argument lasst Argument darauf
   initMemory(atoi(peekArgument()));
 
@@ -6999,17 +7218,6 @@ uint64_t selfie_run(uint64_t machine) {
   resetInterpreter();
   resetMicrokernel();
 
-   //MY_CONTEXT = 0
-  createContext(MY_CONTEXT, 0);
-  //createContext allocates memory for new context
-
-  up_loadBinary(currentContext);
-
-  // pass binary name as first argument by replacing memory size
-  setArgument(binaryName);
-
-  up_loadArguments(currentContext, numberOfRemainingArguments(), remainingArguments());
-
   print(selfieName);
   print((uint64_t*) ": this is selfie executing ");
   print(binaryName);
@@ -7017,25 +7225,44 @@ uint64_t selfie_run(uint64_t machine) {
   printInteger(pageFrameMemory / MEGABYTE);
   print((uint64_t*) "MB of physical memory on ");
 
+  //createContext allocates memory for new context
+  createContext(MY_CONTEXT, 0); //MY_CONTEXT = 0
+
+  up_loadBinary(currentContext);
+  // pass binary name as first argument by replacing memory size
+
+  setArgument(binaryName);
+
+  up_loadArguments(currentContext, numberOfRemainingArguments(), remainingArguments());
+
+  firstContext = currentContext;
+
   if (machine == MIPSTER)
     exitCode = mipster(currentContext);
-  else if (machine == DOUBLEMIPSTER) {
-    COUNTER_RUNNING_MIPSTER = 2;
+  //Assignment #2
+  else if (machine == XMIPSTER) {
 
-    createContext(MY_CONTEXT,0);
+    while(i < COUNTER_RUNNING_MIPSTER) {
+        createContext(MY_CONTEXT,0);
+        i = i + 1;
+    }
+
+    i = 1;
 
     //make cycle, used context is always the last created context
     setNextContext(currentContext, usedContexts);
+    setPrevContext(usedContexts,currentContext);
 
-    currentContext = getNextContext(currentContext);
+    while(i < COUNTER_RUNNING_MIPSTER) {
+      currentContext = getNextContext(currentContext);
+      up_loadBinary(currentContext);
+      setArgument(binaryName);
+      up_loadArguments(currentContext, numberOfRemainingArguments(), remainingArguments());
+      i = i + 1;
+    }
 
-    up_loadBinary(currentContext);
-
-    setArgument(binaryName);
-
-    up_loadArguments(currentContext, numberOfRemainingArguments(), remainingArguments());
-
-    exitCode = doubleMipster(currentContext);
+    exitCode = xMipster(firstContext);
+    //end Assignment #2
   }
 
   else if (machine == MINSTER)
@@ -7081,6 +7308,107 @@ uint64_t selfie_run(uint64_t machine) {
 
   return exitCode;
 }
+
+//Assignment #2
+uint64_t selfie_run_different_Binaries(uint64_t machine) {
+
+  uint64_t exitCode;
+  uint64_t* firstContext;
+  uint64_t* firstBinary;
+  uint64_t i;
+  i = 1;
+
+  if (binaryLength == 0) {
+    print(selfieName);
+    print((uint64_t*) ": nothing to run, debug, or host");
+    println();
+
+    return -1;
+  }
+  //peek Argument lasst Argument darauf
+  initMemory(atoi(peekArgument()));
+
+  interpret = 1;
+
+  resetInterpreter();
+  resetMicrokernel();
+
+  createContext(MY_CONTEXT, 0);
+  up_loadBinary(currentContext);
+  setArgument(binaryName);
+
+  up_loadArguments(currentContext, numberOfRemainingArguments(), remainingArguments());
+
+  firstContext = currentContext;
+  firstBinary = binaryName;
+
+  while(i < COUNTER_RUNNING_MIPSTER) {
+    createContext(MY_CONTEXT,0);
+    i = i + 1;
+  }
+
+  i = 1;
+
+  setNextContext(currentContext, usedContexts);
+  setPrevContext(usedContexts,currentContext);
+
+  while(i < COUNTER_RUNNING_MIPSTER) {
+    selfie_load(i-1);
+    currentContext = getNextContext(currentContext);
+    up_loadBinary(currentContext);
+    setArgument(binaryName);
+    up_loadArguments(currentContext, numberOfRemainingArguments(), remainingArguments());
+    i = i +1;
+  }
+
+  i = 1;
+
+  print(selfieName);
+  print((uint64_t*) ": this is selfie executing ");
+  print(firstBinary);
+  while(i < COUNTER_RUNNING_MIPSTER){
+    print((uint64_t*)", ");
+    print((uint64_t*)*(xth_binary + i-1));
+    i = i + 1;
+  }
+
+  print((uint64_t*) " with ");
+  printInteger(pageFrameMemory / MEGABYTE);
+  print((uint64_t*) "MB of physical memory on ");
+
+  exitCode = xMipster(firstContext);
+
+  interpret = 0;
+
+  debug = 0;
+
+  print(selfieName);
+  print((uint64_t*) ": this is selfie terminating ");
+  print(getName(currentContext));
+  print((uint64_t*) " with exit code ");
+  printInteger(exitCode);
+  print((uint64_t*) " and ");
+  printFixedPointRatio(pused(), MEGABYTE);
+  print((uint64_t*) "MB of mapped memory");
+  println();
+
+  if (calls > 0) {
+    print(selfieName);
+    if (sourceLineNumber != (uint64_t*) 0)
+      print((uint64_t*) ": profile: total,max(ratio%)@addr(line#),2max(ratio%)@addr(line#),3max(ratio%)@addr(line#)");
+    else
+      print((uint64_t*) ": profile: total,max(ratio%)@addr,2max(ratio%)@addr,3max(ratio%)@addr");
+    println();
+    printProfile((uint64_t*) ": calls: ", calls, callsPerAddress);
+    printProfile((uint64_t*) ": loops: ", loops, loopsPerAddress);
+    printProfile((uint64_t*) ": loads: ", loads, loadsPerAddress);
+    printProfile((uint64_t*) ": stores: ", stores, storesPerAddress);
+  }
+
+  return exitCode;
+
+}
+//end Assignment #2
 
 // *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~
 // -----------------------------------------------------------------
@@ -7472,8 +7800,8 @@ void setArgument(uint64_t* argv) {
 void printUsage() {
   print(selfieName);
   print((uint64_t*) ": usage: ");
-  print((uint64_t*) "selfie { -c { source } | -o binary | -s assembly | -l binary | -sat dimacs } ");
-  print((uint64_t*) "[ ( -m | -x | -d | -y | -min | -mob ) size ... ]");
+  print((uint64_t*) "selfie { -c { source } | -o binary | -s assembly | -l binary | -lx binary {binary}| -sat dimacs } ");
+  print((uint64_t*) "[ ( -m | -x |  -d | -y | -min | -mob ) size ... ]");
   println();
 }
 
@@ -7500,23 +7828,39 @@ uint64_t selfie() {
       else if (numberOfRemainingArguments() == 0) {
         // remaining options have at least one argument
         printUsage();
-
         return -1;
       } else if (stringCompare(option, (uint64_t*) "-o"))
         selfie_output();
       else if (stringCompare(option, (uint64_t*) "-s"))
         selfie_disassemble();
+        //-1 .. if threre is only one binary
       else if (stringCompare(option, (uint64_t*) "-l"))
-        selfie_load();
+        selfie_load(-1);
+      //Assignment #2
+        //lx .. x different Binaries
+      else if (stringCompare(option, (uint64_t*) "-lx")){
+        selfie_load(-1);
+        COUNTER_RUNNING_MIPSTER = 1;
+        createDifferentBinaryList();
+        HAS_DIFFERENT_BINARIES = 1;
+      }
+      //end Assignment #2
       else if (stringCompare(option, (uint64_t*) "-sat"))
         selfie_sat();
       else if (stringCompare(option, (uint64_t*) "-m"))
         return selfie_run(MIPSTER);
-      else if (stringCompare(option, (uint64_t*) "-x"))
-        return selfie_run(DOUBLEMIPSTER);
+      //Assignment #2
+      else if (stringCompare(option, (uint64_t*) "-x")){
+        if(HAS_DIFFERENT_BINARIES)
+          return selfie_run_different_Binaries(XMIPSTER);
+        else {
+          COUNTER_RUNNING_MIPSTER = 2;
+          return selfie_run(XMIPSTER);
+        }
+      }
+      //end Assignment #2
       else if (stringCompare(option, (uint64_t*) "-d")) {
         debug = 1;
-
         return selfie_run(MIPSTER);
       } else if (stringCompare(option, (uint64_t*) "-y"))
         return selfie_run(HYPSTER);

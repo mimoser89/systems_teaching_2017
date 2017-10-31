@@ -1,0 +1,302 @@
+Changes due to Assignment #2:
+
+procedure:
+void createDifferentBinaryList() {
+  uint64_t* tempArgument;
+  uint64_t breakWhile;
+  uint64_t i;
+
+  breakWhile = 0;
+  i = 0;
+
+  //maximum different Binarys set to ten
+  xth_binary = malloc(10*SIZEOFUINT64STAR);
+  tempArgument = peekArgument();
+
+  while(breakWhile == 0) {
+    if (stringCompare(tempArgument, (uint64_t*) "-x")){
+      breakWhile = 1;
+
+    }
+    else {
+      *(xth_binary + i) = (uint64_t)getArgument();
+      COUNTER_RUNNING_MIPSTER = COUNTER_RUNNING_MIPSTER + 1;
+      tempArgument = peekArgument();
+      i = i + 1;
+    }
+
+  }
+}
+
+changes:
+if i run different binarys, the names of the binary will be stored in the xth_binary list.
+
+procedure:
+void selfie_load(uint64_t numberOfBinary) {
+  .
+  .
+  
+  if(numberOfBinary == -1)
+    binaryName = getArgument();
+  else {
+    binaryName = (uint64_t*)*(xth_binary + numberOfBinary);
+  }
+
+  .
+  .
+}
+
+changes:
+if i have different binarys i have to set the binary name properly, when argument = -1, it means that there is only one binary
+
+procedure:
+void emitLock() {
+
+  createSymbolTableEntry(LIBRARY_TABLE, (uint64_t*) "lock", 0, PROCEDURE, VOID_T, 0, binaryLength);
+
+  emitIFormat(OP_DADDIU, REG_ZR, REG_V0, SYSCALL_LOCK);
+  emitRFormat(OP_SPECIAL, 0, 0, 0, FCT_SYSCALL);
+
+  // jump back to caller, return value is in REG_V0
+  emitRFormat(OP_SPECIAL, REG_RA, 0, 0, FCT_JR);
+}
+changes: added this procedure to emit lock
+
+procedure:
+void implementLock(uint64_t* context){
+
+  //if there is no locked context
+  if(CURRENT_LOCKED_CONTEXT == (uint64_t*) 0)
+    CURRENT_LOCKED_CONTEXT = context;
+
+}
+changes: added this procedure to implement lock
+
+procedure:
+void emitUnlock() {
+
+  createSymbolTableEntry(LIBRARY_TABLE, (uint64_t*) "unlock", 0, PROCEDURE, VOID_T, 0, binaryLength);
+  emitIFormat(OP_DADDIU, REG_ZR, REG_V0, SYSCALL_UNLOCK);
+  emitRFormat(OP_SPECIAL, 0, 0, 0, FCT_SYSCALL);
+
+  // jump back to caller, return value is in REG_V0
+  emitRFormat(OP_SPECIAL, REG_RA, 0, 0, FCT_JR);
+}
+changes: added this procedure to emit unlock
+
+procedure:
+void implementUnlock(uint64_t* context){
+
+  if(CURRENT_LOCKED_CONTEXT == context)
+    CURRENT_LOCKED_CONTEXT = (uint64_t*) 0;
+}
+changes: added this procedure to implement unlock
+
+
+procedure:
+uint64_t hasLock(uint64_t* context) {
+  if(CURRENT_LOCKED_CONTEXT == (uint64_t*) 0)
+      return 1;
+  else {
+    if(CURRENT_LOCKED_CONTEXT == context)
+      return 1;
+  }
+  return 0;
+}
+
+changes:
+added this procedure to check if a context has the lock
+
+procedure:
+void wait(uint64_t* context) {
+  uint64_t tempPC;
+
+  tempPC = getPC(context);
+  tempPC = tempPC - 2 * INSTRUCTIONSIZE;
+
+  setPC(context,tempPC);
+}
+changes: added this procedure to wait in a certain state
+
+
+
+
+procedure:
+uint64_t handleSystemCalls(uint64_t* context) {
+  .
+  .
+
+    else if (v0 == SYSCALL_WRITE){
+      if(hasLock(context))
+        implementWrite(context);
+      else
+        wait(context);
+    }
+    
+    else if (v0 == SYSCALL_OPEN)
+      implementOpen(context);
+    
+    else if (v0 == SYSCALL_LOCK){
+      if(hasLock(context))
+        implementLock(context);
+      else
+        wait(context);
+    }
+    
+    
+    else if (v0 == SYSCALL_UNLOCK){
+      if(hasLock(context))
+        implementUnlock(context);
+      else
+        wait(context);
+    }
+   
+  .
+  .
+}
+
+changes:
+checks if there are locks and handle the states properly, e.g. wait in a certain state
+
+procedure:
+uint64_t selfie_run_different_Binaries(uint64_t machine) {
+
+  uint64_t exitCode;
+  uint64_t* firstContext;
+  uint64_t* firstBinary;
+  uint64_t i;
+  i = 1;
+
+  if (binaryLength == 0) {
+    print(selfieName);
+    print((uint64_t*) ": nothing to run, debug, or host");
+    println();
+
+    return -1;
+  }
+  //peek Argument lasst Argument darauf
+  initMemory(atoi(peekArgument()));
+
+  interpret = 1;
+
+  resetInterpreter();
+  resetMicrokernel();
+
+  createContext(MY_CONTEXT, 0);
+  up_loadBinary(currentContext);
+  setArgument(binaryName);
+
+  up_loadArguments(currentContext, numberOfRemainingArguments(), remainingArguments());
+
+  firstContext = currentContext;
+  firstBinary = binaryName;
+
+  while(i < COUNTER_RUNNING_MIPSTER) {
+    createContext(MY_CONTEXT,0);
+    i = i + 1;
+  }
+
+  i = 1;
+
+  setNextContext(currentContext, usedContexts);
+  setPrevContext(usedContexts,currentContext);
+
+  while(i < COUNTER_RUNNING_MIPSTER) {
+    selfie_load(i-1);
+    currentContext = getNextContext(currentContext);
+    up_loadBinary(currentContext);
+    setArgument(binaryName);
+    up_loadArguments(currentContext, numberOfRemainingArguments(), remainingArguments());
+    i = i +1;
+  }
+
+  i = 1;
+
+  print(selfieName);
+  print((uint64_t*) ": this is selfie executing ");
+  print(firstBinary);
+  while(i < COUNTER_RUNNING_MIPSTER){
+    print((uint64_t*)", ");
+    print((uint64_t*)*(xth_binary + i-1));
+    i = i + 1;
+  }
+
+  print((uint64_t*) " with ");
+  printInteger(pageFrameMemory / MEGABYTE);
+  print((uint64_t*) "MB of physical memory on ");
+
+  exitCode = xMipster(firstContext);
+
+  interpret = 0;
+
+  debug = 0;
+
+  print(selfieName);
+  print((uint64_t*) ": this is selfie terminating ");
+  print(getName(currentContext));
+  print((uint64_t*) " with exit code ");
+  printInteger(exitCode);
+  print((uint64_t*) " and ");
+  printFixedPointRatio(pused(), MEGABYTE);
+  print((uint64_t*) "MB of mapped memory");
+  println();
+
+  if (calls > 0) {
+    print(selfieName);
+    if (sourceLineNumber != (uint64_t*) 0)
+      print((uint64_t*) ": profile: total,max(ratio%)@addr(line#),2max(ratio%)@addr(line#),3max(ratio%)@addr(line#)");
+    else
+      print((uint64_t*) ": profile: total,max(ratio%)@addr,2max(ratio%)@addr,3max(ratio%)@addr");
+    println();
+    printProfile((uint64_t*) ": calls: ", calls, callsPerAddress);
+    printProfile((uint64_t*) ": loops: ", loops, loopsPerAddress);
+    printProfile((uint64_t*) ": loads: ", loads, loadsPerAddress);
+    printProfile((uint64_t*) ": stores: ", stores, storesPerAddress);
+  }
+
+  return exitCode;
+
+}
+changes: added this procedure to run different binarys on x machines
+
+procedure:
+uint64_t selfie() {
+
+	.
+	.
+	.
+  	//-1 .. if threre is only one binary
+      else if (stringCompare(option, (uint64_t*) "-l"))
+        selfie_load(-1);
+        //lx .. x different Binaries
+      else if (stringCompare(option, (uint64_t*) "-lx")){
+        selfie_load(-1);
+        COUNTER_RUNNING_MIPSTER = 1;
+        createDifferentBinaryList();
+        HAS_DIFFERENT_BINARIES = 1;
+      }
+      else if (stringCompare(option, (uint64_t*) "-sat"))
+        selfie_sat();
+      else if (stringCompare(option, (uint64_t*) "-m"))
+        return selfie_run(MIPSTER);
+      else if (stringCompare(option, (uint64_t*) "-x")){
+        if(HAS_DIFFERENT_BINARIES)
+          return selfie_run_different_Binaries(XMIPSTER);
+        else {
+          COUNTER_RUNNING_MIPSTER = 2;
+          return selfie_run(XMIPSTER);
+        }
+      }
+	.
+	.
+}
+changes: added option -lx to run x binarys on xmachines, the -x command is hardcoded to two Mipster instances with the same binary whit the -l option. 
+
+
+
+
+
+
+
+
+
