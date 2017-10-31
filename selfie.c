@@ -810,7 +810,6 @@ uint64_t maxBinaryLength = 262144; // 256KB
 // ------------------------ GLOBAL VARIABLES -----------------------
 
 uint64_t* binary = (uint64_t*) 0; // binary of emitted instructions
-uint64_t* binary2 = (uint64_t*) 0; // binary of emitted instructions
 
 uint64_t binaryLength = 0; // length of binary in bytes incl. globals & strings
 
