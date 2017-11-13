@@ -1,5 +1,5 @@
 # Compiler flags
-CFLAGS := -w -O3 -m64 -D'main(a,b)=main(int argc, char** argv)' -Duint64_t='unsigned long long'
+CFLAGS := -w -O3 -fno-strict-overflow -m64 -D'main(a,b)=main(int argc, char** argv)' -Duint64_t='unsigned long long'
 
 # Compile selfie.c into selfie executable
 selfie: selfie.c
@@ -20,6 +20,7 @@ test: selfie
 	diff -q selfie1.m selfie3.m
 	diff -q selfie1.s selfie3.s
 	./selfie -c selfie.c -m 4 -c manuscript/code/hello-world.c -x 2
+	./selfie -c selfie.c -m 4 -c manuscript/code/hello-world.c -z 2
 
 # Test SAT solver
 sat: selfie
