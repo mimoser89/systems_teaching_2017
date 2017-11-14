@@ -13,7 +13,7 @@
 // of programming languages and runtime systems. The focus is on the
 // construction of compilers, libraries, operating systems, and even
 // virtual machine monitors. The common theme is to identify and
-// resolve asdfself-reference in systems code which is seen as the key
+// resolve self-reference in systems code which is seen as the key
 // challenge when teaching systems engineering, hence the name.
 //
 // Selfie is a fully self-referential 7k-line C implementation of:
@@ -1210,7 +1210,7 @@ void restoreContext(uint64_t* context);
 
 // ------------------------ GLOBAL CONSTANTS -----------------------
 
-uint64_t debug_create = 0;
+uint64_t debug_create = 1;
 uint64_t debug_map    = 0;
 
 // ------------------------ GLOBAL VARIABLES -----------------------
@@ -4678,7 +4678,7 @@ void createDifferentBinaryList() {
 
   breakWhile = 0;
   i = 0;
-  print((uint64_t*)"hallo");
+
   //maximum different Binarys set to ten
   xth_binary = malloc(10*SIZEOFUINT64STAR);
   tempArgument = peekArgument();
@@ -6463,7 +6463,7 @@ uint64_t* findContext(uint64_t* parent, uint64_t* vctxt, uint64_t* in) {
 
   return (uint64_t*) 0;
 }
-
+//Assignment #4
 uint64_t* getChangedNextContext(uint64_t* context) {
 
   uint64_t* nextContext;
@@ -6487,6 +6487,7 @@ uint64_t* getChangedNextContext(uint64_t* context) {
   return nextContext;
 
 }
+// end //Assignment #4
 
 void freeContext(uint64_t* context) {
   setNextContext(context, freeContexts);
@@ -7153,7 +7154,7 @@ uint64_t hypster(uint64_t* toContext) {
     toContext = fromContext;
   }
 }
-
+//Assignment #4
 uint64_t xHypster(uint64_t* toContext) {
   uint64_t* fromContext;
   uint64_t tempHandleSystemCall;
@@ -7164,7 +7165,7 @@ uint64_t xHypster(uint64_t* toContext) {
 
   while (1) {
     hasExit = 0;
-
+    //works fine with two instructions per switch, also tested with 100, 1000 instructions
     fromContext = hypster_switch(toContext, 2);
 
     if (getException(fromContext) == EXCEPTION_PAGEFAULT)
@@ -7195,6 +7196,7 @@ uint64_t xHypster(uint64_t* toContext) {
     }
   }
 }
+// end Assignment #4
 
 uint64_t mixter(uint64_t* toContext, uint64_t mix) {
   // works with mipsters and hypsters
@@ -7301,8 +7303,8 @@ uint64_t selfie_run(uint64_t machine) {
   COUNTER_RUNNING_CONTEXT = COUNTER_RUNNING_CONTEXT + 1;
 
   up_loadBinary(currentContext);
-  // pass binary name as first argument by replacing memory size
 
+  // pass binary name as first argument by replacing memory size
   setArgument(binaryName);
 
   up_loadArguments(currentContext, numberOfRemainingArguments(), remainingArguments());
@@ -7315,7 +7317,9 @@ uint64_t selfie_run(uint64_t machine) {
     COUNTER_RUNNING_CONTEXT = COUNTER_RUNNING_CONTEXT + 1;
 
     up_loadBinary(usedContexts);
+
     setArgument(binaryName);
+
     up_loadArguments(usedContexts, numberOfRemainingArguments(), remainingArguments());
 
     exitCode = xMipster(currentContext);
@@ -7338,10 +7342,13 @@ uint64_t selfie_run(uint64_t machine) {
     COUNTER_RUNNING_CONTEXT = COUNTER_RUNNING_CONTEXT + 1;
 
     up_loadBinary(usedContexts);
+
     setArgument(binaryName);
+
     up_loadArguments(usedContexts, numberOfRemainingArguments(), remainingArguments());
 
     if (isBootLevelZero())
+      // no hypster on boot level zero
       exitCode = xMipster(currentContext);
 
     else

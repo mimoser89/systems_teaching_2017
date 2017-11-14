@@ -1,0 +1,132 @@
+Changes due to Assignment #4:
+
+procedure:
+uint64_t* getChangedNextContext(uint64_t* context) {
+
+  uint64_t* nextContext;
+
+  if(getNextContext(context) == (uint64_t* ) 0) {
+    nextContext = usedContexts;
+  }
+  else {
+    nextContext = getNextContext(context);
+  }
+
+  while(getParent(nextContext) != MY_CONTEXT) {
+    if(getNextContext(nextContext) == (uint64_t* ) 0) {
+      nextContext = usedContexts;
+    }
+    else {
+      nextContext = getNextContext(nextContext);
+    }
+  }
+
+  return nextContext;
+
+}
+
+changes:
+add this procedure because of problems, running hypster on top of xMipster
+
+procedure:
+uint64_t xHypster(uint64_t* toContext) {
+  uint64_t* fromContext;
+  uint64_t tempHandleSystemCall;
+  uint64_t hasExit;
+
+  print((uint64_t*) "XHypster");
+  println();
+
+  while (1) {
+    hasExit = 0;
+
+    fromContext = hypster_switch(toContext, 2);
+
+    if (getException(fromContext) == EXCEPTION_PAGEFAULT)
+      // TODO: use this table to unmap and reuse frames
+      mapPage(fromContext, getFaultingPage(fromContext), (uint64_t) palloc());
+    else {
+      tempHandleSystemCall = handleSystemCalls(fromContext);
+
+      //checks if all contexts exited
+      if(tempHandleSystemCall == EXIT)
+        return getExitCode(fromContext);
+
+      //checks if only one context exited
+      else if(tempHandleSystemCall == EXIT_ONE_CONTEXT){
+        COUNTER_RUNNING_CONTEXT = COUNTER_RUNNING_CONTEXT - 1;
+
+        implementExit(fromContext);
+        toContext = getChangedNextContext(fromContext);
+        usedContexts = deleteContext(fromContext,usedContexts);
+        hasExit = 1;
+      }
+    }
+
+    if(hasExit==0) {
+      setException(fromContext, EXCEPTION_NOEXCEPTION);
+      //set next context
+      toContext = getChangedNextContext(fromContext);
+    }
+  }
+}
+
+changes:
+add this procedure for the -z option
+
+
+procedue:
+uint64_t selfie_run(uint64_t machine) {
+   .
+   .
+	else if (machine == XHYPSTER) {
+	    createContext(MY_CONTEXT,0);
+	    COUNTER_RUNNING_CONTEXT = COUNTER_RUNNING_CONTEXT + 1;
+
+	    up_loadBinary(usedContexts);
+	    setArgument(binaryName);
+	    up_loadArguments(usedContexts, numberOfRemainingArguments(), remainingArguments());
+
+	    if (isBootLevelZero())
+	      exitCode = xMipster(currentContext);
+
+	    else
+	      exitCode = xHypster(currentContext);
+	 }
+    .
+    .
+
+}
+
+changes:
+add machine XHypster and the needed calls in selfie_run. This is also added in selfie_run_differrent_Binaries. 
+
+procedure:
+uint64_t selfie() {
+
+	.
+	.
+	.
+	      else if (stringCompare(option, (uint64_t*) "-z")){
+
+		if(HAS_DIFFERENT_BINARIES)
+		  return selfie_run_different_Binaries(XHYPSTER);
+		else {
+		  return selfie_run(XHYPSTER);
+		}
+	      }
+	.
+	.
+}
+changes: 
+added option -z two run two or x Hypster instances
+
+
+
+
+
+
+
+
+
+
