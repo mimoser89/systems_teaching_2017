@@ -89,6 +89,7 @@ uint64_t  open(uint64_t* filename, uint64_t flags, uint64_t mode);
 uint64_t* malloc(uint64_t size);
 void lock();
 void unlock();
+uint64_t fork();
 
 // -----------------------------------------------------------------
 // ----------------------- LIBRARY PROCEDURES ----------------------
@@ -798,10 +799,8 @@ void selfie_output();
 
 uint64_t* touch(uint64_t* memory, uint64_t length);
 
-//Assignment #2
 void createDifferentBinaryList();
 void selfie_load(uint64_t numberOfBinary);
-//end Assignment #2
 
 // ------------------------ GLOBAL CONSTANTS -----------------------
 
@@ -816,10 +815,10 @@ uint64_t binaryLength = 0; // length of binary in bytes incl. globals & strings
 uint64_t codeLength = 0; // length of code portion of binary in bytes
 
 uint64_t* binaryName = (uint64_t*) 0; // file name of binary
-//Assignment #2
+
 uint64_t* xth_binary = (uint64_t*) 0; // file name of xth-binary
+
 uint64_t HAS_DIFFERENT_BINARIES = 0; // are there different binarys?
-//end Assignment #2
 
 uint64_t* sourceLineNumber = (uint64_t*) 0; // source line number per emitted instruction
 
@@ -846,16 +845,23 @@ void implementOpen(uint64_t* context);
 void emitMalloc();
 uint64_t implementMalloc(uint64_t* context);
 
-// begin Assignment #2
 void emitLock();
-
-uint64_t hasLock(uint64_t* context);
-void wait(uint64_t* context);
 void implementLock(uint64_t* context);
 
 void emitUnlock();
 void implementUnlock(uint64_t* context);
-//end Assignment #2
+
+uint64_t hasLock(uint64_t* context);
+void wait(uint64_t* context);
+//Assignment #5
+void emitFork();
+void implementFork(uint64_t* context);
+
+void copyContext(uint64_t* context, uint64_t* forkedContext);
+void copyRegister(uint64_t* context, uint64_t* forkedContext);
+void copyPageTable(uint64_t* context, uint64_t* forkedContext);
+//end Assignment #5
+
 
 // ------------------------ GLOBAL CONSTANTS -----------------------
 
@@ -872,6 +878,19 @@ uint64_t SYSCALL_OPEN   = 4005;
 
 uint64_t SYSCALL_MALLOC = 4045;
 
+uint64_t SYSCALL_LOCK = 4006;
+uint64_t SYSCALL_UNLOCK = 4007;
+
+uint64_t* CURRENT_LOCKED_CONTEXT = (uint64_t*) 0;
+//Assignment #5
+uint64_t SYSCALL_FORK = 4008;
+
+uint64_t debug_fork = 0;
+
+uint64_t old_PID = 0;
+uint64_t new_PID;
+//end Assignment #5
+
 // -----------------------------------------------------------------
 // ----------------------- HYPSTER SYSCALLS ------------------------
 // -----------------------------------------------------------------
@@ -886,13 +905,6 @@ uint64_t* mipster_switch(uint64_t* toContext, uint64_t timeout);
 uint64_t SYSCALL_SWITCH = 4901;
 
 uint64_t debug_switch = 0;
-
-//Assignment 2
-uint64_t SYSCALL_LOCK = 4006;
-uint64_t SYSCALL_UNLOCK = 4007;
-
-uint64_t* CURRENT_LOCKED_CONTEXT = (uint64_t*) 0;
-//end Assignment 2
 
 // *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~
 // -----------------------------------------------------------------
@@ -1113,6 +1125,11 @@ uint64_t* deleteContext(uint64_t* context, uint64_t* from);
 
 uint64_t* getChangedNextContext(uint64_t* context);
 
+void incrementRunningContexts();
+
+void decrementRunningContexts();
+
+
 // context struct:
 // +----+----------------+
 // |  0 | nextContext    | pointer to next context
@@ -1132,7 +1149,7 @@ uint64_t* getChangedNextContext(uint64_t* context);
 // | 14 | parent         | context that created this context
 // | 15 | virtualContext | virtual context address
 // | 16 | name           | binary name loaded into context
-// | 17 | isLock         | 1 if context is locked, 0 otherwise
+// | 17 | PID            | pid of the context
 // +----+----------------+
 
 uint64_t nextContext(uint64_t* context)    { return (uint64_t) context; }
@@ -1152,7 +1169,7 @@ uint64_t ExitCode(uint64_t* context)       { return (uint64_t) (context + 13); }
 uint64_t Parent(uint64_t* context)         { return (uint64_t) (context + 14); }
 uint64_t VirtualContext(uint64_t* context) { return (uint64_t) (context + 15); }
 uint64_t Name(uint64_t* context)           { return (uint64_t) (context + 16); }
-uint64_t Lock(uint64_t* context)           { return (uint64_t) (context + 17); }
+uint64_t pid(uint64_t* context)            { return (uint64_t) (context + 17); }
 
 uint64_t* getNextContext(uint64_t* context)    { return (uint64_t*) *context; }
 uint64_t* getPrevContext(uint64_t* context)    { return (uint64_t*) *(context + 1); }
@@ -1171,7 +1188,7 @@ uint64_t  getExitCode(uint64_t* context)       { return             *(context + 
 uint64_t* getParent(uint64_t* context)         { return (uint64_t*) *(context + 14); }
 uint64_t* getVirtualContext(uint64_t* context) { return (uint64_t*) *(context + 15); }
 uint64_t* getName(uint64_t* context)           { return (uint64_t*) *(context + 16); }
-uint64_t  getIsLock(uint64_t* context)         { return             *(context + 17); }
+uint64_t  getPid(uint64_t* context)            { return             *(context + 17); }
 
 void setNextContext(uint64_t* context, uint64_t* next)     { *context        = (uint64_t) next; }
 void setPrevContext(uint64_t* context, uint64_t* prev)     { *(context + 1)  = (uint64_t) prev; }
@@ -1190,7 +1207,7 @@ void setExitCode(uint64_t* context, uint64_t code)         { *(context + 13) = c
 void setParent(uint64_t* context, uint64_t* parent)        { *(context + 14) = (uint64_t) parent; }
 void setVirtualContext(uint64_t* context, uint64_t* vctxt) { *(context + 15) = (uint64_t) vctxt; }
 void setName(uint64_t* context, uint64_t* name)            { *(context + 16) = (uint64_t) name; }
-void setIsLocked(uint64_t* context, uint64_t isLock)       { *(context + 17) = isLock; }
+void setPid(uint64_t* context, uint64_t pid)               { *(context + 17) = pid; }
 
 // -----------------------------------------------------------------
 // -------------------------- MICROKERNEL --------------------------
@@ -1210,7 +1227,7 @@ void restoreContext(uint64_t* context);
 
 // ------------------------ GLOBAL CONSTANTS -----------------------
 
-uint64_t debug_create = 1;
+uint64_t debug_create = 0;
 uint64_t debug_map    = 0;
 
 // ------------------------ GLOBAL VARIABLES -----------------------
@@ -1262,10 +1279,9 @@ uint64_t hypster(uint64_t* toContext);
 uint64_t xHypster(uint64_t* toContext);
 uint64_t mixter(uint64_t* toContext, uint64_t mix);
 
-//Assignment #2
 uint64_t selfie_run(uint64_t machine);
 uint64_t selfie_run_different_Binaries(uint64_t machine);
-//end Assignment #2
+
 
 // ------------------------ GLOBAL CONSTANTS -----------------------
 
@@ -1273,6 +1289,7 @@ uint64_t* MY_CONTEXT = (uint64_t*) 0;
 
 uint64_t DONOTEXIT = 0;
 uint64_t EXIT = 1;
+
 uint64_t EXIT_ONE_CONTEXT = 2;
 
 uint64_t COUNTER_RUNNING_CONTEXT = 0;
@@ -4128,6 +4145,8 @@ void selfie_compile() {
   emitLock();
   emitUnlock();
 
+  emitFork();
+
   while (link) {
     if (numberOfRemainingArguments() == 0)
       link = 0;
@@ -4670,7 +4689,6 @@ uint64_t* touch(uint64_t* memory, uint64_t length) {
   return memory;
 }
 
-//Assignment #2
 void createDifferentBinaryList() {
   uint64_t* tempArgument;
   uint64_t breakWhile;
@@ -4690,17 +4708,18 @@ void createDifferentBinaryList() {
       breakWhile = 1;
     else {
       *(xth_binary + i) = (uint64_t)getArgument();
-      COUNTER_RUNNING_CONTEXT = COUNTER_RUNNING_CONTEXT + 1;
+
+      incrementRunningContexts();
+
       tempArgument = peekArgument();
+
       i = i + 1;
     }
 
   }
 
 }
-//end Assignment #2
 
-//Assignment #2
 void selfie_load(uint64_t numberOfBinary) {
   uint64_t fd;
   uint64_t numberOfReadBytes;
@@ -4709,7 +4728,6 @@ void selfie_load(uint64_t numberOfBinary) {
   else {
     binaryName = (uint64_t*)*(xth_binary + numberOfBinary);
   }
-  //end Assignment #2
 
   // assert: binaryName is mapped and not longer than maxFilenameLength
 
@@ -5209,7 +5227,7 @@ uint64_t implementMalloc(uint64_t* context) {
   }
 }
 
-//Assignment #2
+
 void emitLock() {
 
   createSymbolTableEntry(LIBRARY_TABLE, (uint64_t*) "lock", 0, PROCEDURE, VOID_T, 0, binaryLength);
@@ -5220,9 +5238,7 @@ void emitLock() {
   // jump back to caller, return value is in REG_V0
   emitRFormat(OP_SPECIAL, REG_RA, 0, 0, FCT_JR);
 }
-//end Assignment #2
 
-//Assignment #2
 void implementLock(uint64_t* context){
 
   //if there is no locked context
@@ -5230,9 +5246,7 @@ void implementLock(uint64_t* context){
     CURRENT_LOCKED_CONTEXT = context;
 
 }
-//end Assignment #2
 
-//Assignment #2
 void emitUnlock() {
 
   createSymbolTableEntry(LIBRARY_TABLE, (uint64_t*) "unlock", 0, PROCEDURE, VOID_T, 0, binaryLength);
@@ -5242,17 +5256,13 @@ void emitUnlock() {
   // jump back to caller, return value is in REG_V0
   emitRFormat(OP_SPECIAL, REG_RA, 0, 0, FCT_JR);
 }
-//end Assignment #2
 
-//Assignment #2
 void implementUnlock(uint64_t* context){
 
   if(CURRENT_LOCKED_CONTEXT == context)
     CURRENT_LOCKED_CONTEXT = (uint64_t*) 0;
 }
-//end Assignment #2
 
-//Assignment #2
 uint64_t hasLock(uint64_t* context) {
   if(CURRENT_LOCKED_CONTEXT == (uint64_t*) 0)
       return 1;
@@ -5262,18 +5272,126 @@ uint64_t hasLock(uint64_t* context) {
   }
   return 0;
 }
-//end Assignment #2
 
-//Assignment #2
 void wait(uint64_t* context) {
   uint64_t tempPC;
 
   tempPC = getPC(context);
-  tempPC = tempPC - 2*INSTRUCTIONSIZE;
+  tempPC = tempPC - 2 * INSTRUCTIONSIZE;
 
   setPC(context,tempPC);
 }
-//end Assignment #2
+//Assignment #5
+void emitFork() {
+  createSymbolTableEntry(LIBRARY_TABLE, (uint64_t*) "fork", 0, PROCEDURE, UINT64STAR_T, 0, binaryLength);
+
+  emitIFormat(OP_DADDIU, REG_ZR, REG_V0, SYSCALL_FORK);
+  emitRFormat(OP_SPECIAL, 0, 0, 0, FCT_SYSCALL);
+
+  emitRFormat(OP_SPECIAL, REG_RA, 0, 0, FCT_JR);
+}
+
+void implementFork(uint64_t* context) {
+
+  uint64_t* forkedContext;
+
+  //create new forked Context
+  forkedContext = createContext(getParent(context), getVirtualContext(context));
+
+  incrementRunningContexts();
+
+  if(debug_fork) {
+    print((uint64_t*) ": parent context ");
+    printHexadecimal((uint64_t) context, 8);
+    print((uint64_t*) " created child context ");
+    printHexadecimal((uint64_t) forkedContext, 8);
+    println();
+  }
+
+  //copy content of the context to the forked Context
+  copyContext(context, forkedContext);
+
+  //copy register of the context to the forked Context
+  copyRegister(context, forkedContext);
+
+  //copy page table of the context to the forked Context
+  copyPageTable(context, forkedContext);
+
+  new_PID = old_PID + 1;
+  setPid(forkedContext, old_PID);
+  *(getRegs(context)+REG_V0) = old_PID;
+  old_PID = new_PID;
+
+  *(getRegs(forkedContext)+REG_V0) = 0;
+
+}
+
+void copyContext(uint64_t* context, uint64_t* forkedContext) {
+
+  //do not copy Lo,Me, Hi page, PT, REGS
+  setPC(forkedContext,getPC(context));
+  setLoReg(forkedContext,getLoReg(context));
+  setHiReg(forkedContext, getHiReg(context));
+  setProgramBreak(forkedContext, getProgramBreak(context));
+  setException(forkedContext, getException(context));
+  setFaultingPage(forkedContext, getFaultingPage(context));
+  setExitCode(forkedContext, getExitCode(context));
+  setParent(forkedContext, getParent(context));
+  setVirtualContext(forkedContext, getVirtualContext(context));
+  setName(forkedContext, getName(context));
+
+}
+
+void copyRegister(uint64_t* context, uint64_t* forkedContext) {
+  uint64_t reg_Index;
+  reg_Index = 0;
+
+  while(reg_Index < NUMBEROFREGISTERS) {
+    *(getRegs(forkedContext) + reg_Index) = *(getRegs(context) + reg_Index);
+    reg_Index = reg_Index + 1;
+  }
+}
+
+void copyPageTable(uint64_t* context, uint64_t* forkedContext) {
+
+  uint64_t pageIndex;
+  uint64_t vaddr;
+
+  pageIndex = 0;
+  vaddr = 0;
+
+  while(pageIndex <= getMePage(context)) {
+
+    if(isPageMapped(getPT(context), pageIndex)) {
+
+         mapPage(forkedContext, pageIndex, (uint64_t) palloc());
+
+         while(vaddr < (pageIndex + 1) * PAGESIZE) {
+           storeVirtualMemory(getPT(forkedContext),vaddr, loadVirtualMemory(getPT(context),vaddr));
+           vaddr = vaddr + SIZEOFUINT64STAR;
+         }
+    }
+    pageIndex = pageIndex + 1;
+  }
+
+  pageIndex = getPageOfVirtualAddress(VIRTUALMEMORYSIZE - REGISTERSIZE);
+
+  while(pageIndex >= getHiPage(context)) {
+    if(isPageMapped(getPT(context), pageIndex)) {
+
+         mapPage(forkedContext, pageIndex, (uint64_t) palloc());
+         vaddr = pageIndex * PAGESIZE;
+
+         while(vaddr < (pageIndex + 1) * PAGESIZE) {
+           storeVirtualMemory(getPT(forkedContext), vaddr, loadVirtualMemory(getPT(context),vaddr));
+           vaddr = vaddr + SIZEOFUINT64STAR;
+         }
+    }
+    pageIndex = pageIndex - 1;
+  }
+
+}
+//end Assignment #5
 
 // -----------------------------------------------------------------
 // ----------------------- HYPSTER SYSCALLS ------------------------
@@ -5834,10 +5952,6 @@ void fct_syscall() {
     }
 
   }
-  // if(debug_switch) {
-  //   printFunction(function);
-  //   println();
-  // }
 }
 
 void op_daddiu() {
@@ -5876,16 +5990,6 @@ void op_daddiu() {
     }
     println();
   }
-
-  // if (debug_switch) {
-  //   if (interpret) {
-  //     print((uint64_t*) " -> ");
-  //     printRegister(rt);
-  //     print((uint64_t*) "=");
-  //     printInteger(*(registers+rt));
-  //   }
-  //   println();
-  // }
 }
 
 void op_ld() {
@@ -6178,22 +6282,6 @@ void execute() {
     print((uint64_t*) ": ");
   }
 
-  // if (debug_switch) {
-  //   if (interpret) {
-  //     print(getName(currentContext));
-  //     print((uint64_t*) ": $pc=");
-  //   }
-  //   printHexadecimal(pc, 0);
-  //   if (sourceLineNumber != (uint64_t*) 0) {
-  //     print((uint64_t*) "(~");
-  //     printInteger(*(sourceLineNumber + pc / INSTRUCTIONSIZE));
-  //     print((uint64_t*) ")");
-  //   }
-  //   print((uint64_t*) ": ");
-  //   printHexadecimal(ir, 8);
-  //   print((uint64_t*) ": ");
-  // }
-
   if (opcode == OP_SPECIAL) {
     if (function == FCT_NOP)
       fct_nop();
@@ -6424,6 +6512,7 @@ uint64_t* allocateContext(uint64_t* parent, uint64_t* vctxt, uint64_t* in) {
 
   // allocate zeroed memory for page table
   // TODO: save and reuse memory for page table
+
   setPT(context, zalloc(VIRTUALMEMORYSIZE / PAGESIZE * SIZEOFUINT64));
 
   // determine range of recently mapped pages
@@ -6443,7 +6532,8 @@ uint64_t* allocateContext(uint64_t* parent, uint64_t* vctxt, uint64_t* in) {
   setVirtualContext(context, vctxt);
 
   setName(context, (uint64_t*) 0);
-  setIsLocked(context,0);
+
+  setPid(context,-1);
 
   return context;
 }
@@ -6463,7 +6553,28 @@ uint64_t* findContext(uint64_t* parent, uint64_t* vctxt, uint64_t* in) {
 
   return (uint64_t*) 0;
 }
-//Assignment #4
+
+void freeContext(uint64_t* context) {
+  setNextContext(context, freeContexts);
+
+  freeContexts = context;
+}
+
+uint64_t* deleteContext(uint64_t* context, uint64_t* from) {
+  if (getNextContext(context) != (uint64_t*) 0)
+    setPrevContext(getNextContext(context), getPrevContext(context));
+
+  if (getPrevContext(context) != (uint64_t*) 0) {
+    setNextContext(getPrevContext(context), getNextContext(context));
+    setPrevContext(context, (uint64_t*) 0);
+  } else
+    from = getNextContext(context);
+
+  freeContext(context);
+
+  return from;
+}
+
 uint64_t* getChangedNextContext(uint64_t* context) {
 
   uint64_t* nextContext;
@@ -6487,27 +6598,13 @@ uint64_t* getChangedNextContext(uint64_t* context) {
   return nextContext;
 
 }
-// end //Assignment #4
 
-void freeContext(uint64_t* context) {
-  setNextContext(context, freeContexts);
-
-  freeContexts = context;
+void incrementRunningContexts() {
+  COUNTER_RUNNING_CONTEXT = COUNTER_RUNNING_CONTEXT + 1;
 }
 
-uint64_t* deleteContext(uint64_t* context, uint64_t* from) {
-  if (getNextContext(context) != (uint64_t*) 0)
-    setPrevContext(getNextContext(context), getPrevContext(context));
-
-  if (getPrevContext(context) != (uint64_t*) 0) {
-    setNextContext(getPrevContext(context), getNextContext(context));
-    setPrevContext(context, (uint64_t*) 0);
-  } else
-    from = getNextContext(context);
-
-  freeContext(context);
-
-  return from;
+void decrementRunningContexts(){
+  COUNTER_RUNNING_CONTEXT = COUNTER_RUNNING_CONTEXT - 1;
 }
 
 // -----------------------------------------------------------------
@@ -6713,6 +6810,7 @@ uint64_t pused() {
 }
 
 uint64_t* palloc() {
+
   uint64_t block;
   uint64_t frame;
 
@@ -6899,36 +6997,32 @@ uint64_t handleSystemCalls(uint64_t* context) {
       return implementMalloc(context);
     else if (v0 == SYSCALL_READ)
       implementRead(context);
-    //Assignment #2
     else if (v0 == SYSCALL_WRITE){
       if(hasLock(context))
         implementWrite(context);
       else
         wait(context);
-    }
-    //end Assignment #2
-    else if (v0 == SYSCALL_OPEN)
+    } else if (v0 == SYSCALL_OPEN)
       implementOpen(context);
-    //Assignment #2
     else if (v0 == SYSCALL_LOCK){
       if(hasLock(context))
         implementLock(context);
       else
         wait(context);
-    }
-    //end Assignment #2
-    //Assignment #2
-    else if (v0 == SYSCALL_UNLOCK){
+    } else if (v0 == SYSCALL_UNLOCK){
       if(hasLock(context))
         implementUnlock(context);
       else
         wait(context);
-    }
-    //end Assignment #2
-    else if (v0 == SYSCALL_EXIT) {
+    //Assignment #5
+    } else if (v0 == SYSCALL_FORK) {
+      implementFork(context);
+    //end Assignment #5
+    } else if (v0 == SYSCALL_EXIT) {
       //if there are more then one contexts running
       //return the new variable EXIT_ONE_CONTEXT
        if(COUNTER_RUNNING_CONTEXT > 1) {
+         implementExit(context);
          return EXIT_ONE_CONTEXT;
        }
       implementExit(context);
@@ -6963,16 +7057,25 @@ uint64_t handleSystemCalls(uint64_t* context) {
   return DONOTEXIT;
 }
 
+//Assignment #5
 uint64_t mipster(uint64_t* toContext) {
+
   uint64_t timeout;
   uint64_t* fromContext;
+  uint64_t tempHandleSystemCall;
+  uint64_t hasExit;
 
-  print((uint64_t*) "mipster");
+  print((uint64_t*) "Mipster");
   println();
+
+  debug_switch = 0;
 
   timeout = TIMESLICE;
 
   while (1) {
+
+    hasExit = 0;
+    //first time switches to the self context
     fromContext = mipster_switch(toContext, timeout);
 
     if (getParent(fromContext) != MY_CONTEXT) {
@@ -6980,25 +7083,41 @@ uint64_t mipster(uint64_t* toContext) {
       toContext = getParent(fromContext);
 
       timeout = TIMEROFF;
-
     } else {
        // we are the parent in charge of handling exceptions
 
-      if (getException(fromContext) == EXCEPTION_PAGEFAULT)
+      if (getException(fromContext) == EXCEPTION_PAGEFAULT){
         // TODO: use this table to unmap and reuse frames
         mapPage(fromContext, getFaultingPage(fromContext), (uint64_t) palloc());
-      else if (handleSystemCalls(fromContext) == EXIT)
-        return getExitCode(fromContext);
+      }
 
-      setException(fromContext, EXCEPTION_NOEXCEPTION);
+      else {
+        tempHandleSystemCall = handleSystemCalls(fromContext);
 
-      toContext = fromContext;
+        //checks if all contexts exited
+        if(tempHandleSystemCall == EXIT)
+          return getExitCode(fromContext);
 
+        //checks if only one context exited
+        else if(tempHandleSystemCall == EXIT_ONE_CONTEXT){
+          decrementRunningContexts();
+
+          toContext = getChangedNextContext(fromContext);
+          usedContexts = deleteContext(fromContext,usedContexts);
+          hasExit = 1;
+        }
+      }
+      if(hasExit==0) {
+        setException(fromContext, EXCEPTION_NOEXCEPTION);
+        //set next context
+        toContext = getChangedNextContext(fromContext);
+      }
       timeout = TIMESLICE;
 
     }
   }
 }
+//end Assignment #5
 
 uint64_t xMipster(uint64_t* toContext) {
 
@@ -7044,11 +7163,9 @@ uint64_t xMipster(uint64_t* toContext) {
           return getExitCode(fromContext);
 
         //checks if only one context exited
-        //Assignment #2
         else if(tempHandleSystemCall == EXIT_ONE_CONTEXT){
-          COUNTER_RUNNING_CONTEXT = COUNTER_RUNNING_CONTEXT - 1;
-          //should we print every exit?
-          implementExit(fromContext);
+          decrementRunningContexts();
+
           toContext = getChangedNextContext(fromContext);
           usedContexts = deleteContext(fromContext,usedContexts);
           hasExit = 1;
@@ -7060,7 +7177,6 @@ uint64_t xMipster(uint64_t* toContext) {
         toContext = getChangedNextContext(fromContext);
       }
       timeout = 1;
-      //end Assignment #2
     }
   }
 }
@@ -7134,27 +7250,49 @@ uint64_t mobster(uint64_t* toContext) {
   }
 }
 
+//Assignment #5
 uint64_t hypster(uint64_t* toContext) {
   uint64_t* fromContext;
+  uint64_t tempHandleSystemCall;
+  uint64_t hasExit;
 
-  print((uint64_t*) "hypster");
+  print((uint64_t*) "Hypster");
   println();
 
   while (1) {
+    hasExit = 0;
+    //works fine with two instructions per switch, also tested with 100, 1000 instructions
     fromContext = hypster_switch(toContext, TIMESLICE);
 
     if (getException(fromContext) == EXCEPTION_PAGEFAULT)
       // TODO: use this table to unmap and reuse frames
       mapPage(fromContext, getFaultingPage(fromContext), (uint64_t) palloc());
-    else if (handleSystemCalls(fromContext) == EXIT)
-      return getExitCode(fromContext);
+    else {
+      tempHandleSystemCall = handleSystemCalls(fromContext);
 
-    setException(fromContext, EXCEPTION_NOEXCEPTION);
+      //checks if all contexts exited
+      if(tempHandleSystemCall == EXIT)
+        return getExitCode(fromContext);
 
-    toContext = fromContext;
+      //checks if only one context exited
+      else if(tempHandleSystemCall == EXIT_ONE_CONTEXT){
+        decrementRunningContexts();
+
+        toContext = getChangedNextContext(fromContext);
+        usedContexts = deleteContext(fromContext,usedContexts);
+        hasExit = 1;
+      }
+    }
+
+    if(hasExit==0) {
+      setException(fromContext, EXCEPTION_NOEXCEPTION);
+      //set next context
+      toContext = getChangedNextContext(fromContext);
+    }
   }
 }
-//Assignment #4
+//end Assignment #5
+
 uint64_t xHypster(uint64_t* toContext) {
   uint64_t* fromContext;
   uint64_t tempHandleSystemCall;
@@ -7180,9 +7318,8 @@ uint64_t xHypster(uint64_t* toContext) {
 
       //checks if only one context exited
       else if(tempHandleSystemCall == EXIT_ONE_CONTEXT){
-        COUNTER_RUNNING_CONTEXT = COUNTER_RUNNING_CONTEXT - 1;
+        decrementRunningContexts();
 
-        implementExit(fromContext);
         toContext = getChangedNextContext(fromContext);
         usedContexts = deleteContext(fromContext,usedContexts);
         hasExit = 1;
@@ -7196,7 +7333,6 @@ uint64_t xHypster(uint64_t* toContext) {
     }
   }
 }
-// end Assignment #4
 
 uint64_t mixter(uint64_t* toContext, uint64_t mix) {
   // works with mipsters and hypsters
@@ -7283,12 +7419,12 @@ uint64_t selfie_run(uint64_t machine) {
   }
 
   //peek Argument lasst Argument darauf
-  initMemory(atoi(peekArgument()));
+  initMemory(atoi(peekArgument())); //set the pageFrameMemory
 
   interpret = 1;
 
   resetInterpreter();
-  resetMicrokernel();
+  resetMicrokernel(); //deletes all contexts and sets current to 0
 
   print(selfieName);
   print((uint64_t*) ": this is selfie executing ");
@@ -7300,9 +7436,15 @@ uint64_t selfie_run(uint64_t machine) {
   //createContext allocates memory for new context
   createContext(MY_CONTEXT, 0);
 
-  COUNTER_RUNNING_CONTEXT = COUNTER_RUNNING_CONTEXT + 1;
+  incrementRunningContexts();
 
   up_loadBinary(currentContext);
+
+  //Assignment #5
+  new_PID = old_PID + 1;
+  setPid(currentContext, old_PID);
+  old_PID = new_PID;
+  //end Assignment #5
 
   // pass binary name as first argument by replacing memory size
   setArgument(binaryName);
@@ -7314,9 +7456,16 @@ uint64_t selfie_run(uint64_t machine) {
 
   else if (machine == XMIPSTER) {
     createContext(MY_CONTEXT,0);
-    COUNTER_RUNNING_CONTEXT = COUNTER_RUNNING_CONTEXT + 1;
+
+    incrementRunningContexts();
 
     up_loadBinary(usedContexts);
+
+    //Assignment #5
+    new_PID = old_PID + 1;
+    setPid(usedContexts, old_PID);
+    old_PID = new_PID;
+    //end Assignment #5
 
     setArgument(binaryName);
 
@@ -7338,10 +7487,18 @@ uint64_t selfie_run(uint64_t machine) {
       exitCode = hypster(currentContext);
 
   else if (machine == XHYPSTER) {
+
     createContext(MY_CONTEXT,0);
-    COUNTER_RUNNING_CONTEXT = COUNTER_RUNNING_CONTEXT + 1;
+
+    incrementRunningContexts();
 
     up_loadBinary(usedContexts);
+
+    //Assignment #5
+    new_PID = old_PID + 1;
+    setPid(usedContexts, old_PID);
+    old_PID = new_PID;
+    //end Assignment #5
 
     setArgument(binaryName);
 
@@ -7389,7 +7546,6 @@ uint64_t selfie_run(uint64_t machine) {
   return exitCode;
 }
 
-//Assignment #2
 uint64_t selfie_run_different_Binaries(uint64_t machine) {
 
   uint64_t exitCode;
@@ -7416,6 +7572,13 @@ uint64_t selfie_run_different_Binaries(uint64_t machine) {
   createContext(MY_CONTEXT, 0);
 
   up_loadBinary(currentContext);
+
+  //Assignment #5
+  new_PID = old_PID + 1;
+  setPid(currentContext, old_PID);
+  old_PID = new_PID;
+  //end Assignment #5
+
   setArgument(binaryName);
 
   up_loadArguments(currentContext, numberOfRemainingArguments(), remainingArguments());
@@ -7423,11 +7586,21 @@ uint64_t selfie_run_different_Binaries(uint64_t machine) {
   firstBinary = binaryName;
 
   while(i < COUNTER_RUNNING_CONTEXT) {
+
     selfie_load(i-1);
+
     createContext(MY_CONTEXT,0);
 
     up_loadBinary(usedContexts);
+
+    //Assignment #5
+    new_PID = old_PID + 1;
+    setPid(usedContexts, old_PID);
+    old_PID = new_PID;
+    //end Assignment #5
+
     setArgument(binaryName);
+
     up_loadArguments(usedContexts, numberOfRemainingArguments(), remainingArguments());
 
     i = i + 1;
@@ -7488,7 +7661,6 @@ uint64_t selfie_run_different_Binaries(uint64_t machine) {
   return exitCode;
 
 }
-//end Assignment #2
 
 // *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~ *~*~
 // -----------------------------------------------------------------
@@ -7916,43 +8088,35 @@ uint64_t selfie() {
         //-1 .. if threre is only one binary
       else if (stringCompare(option, (uint64_t*) "-l"))
         selfie_load(-1);
-      //Assignment #2
       //lx .. x (different) Binaries
       else if (stringCompare(option, (uint64_t*) "-lx")){
         selfie_load(-1);
-        COUNTER_RUNNING_CONTEXT = COUNTER_RUNNING_CONTEXT + 1;
+        incrementRunningContexts();
         createDifferentBinaryList();
 
         HAS_DIFFERENT_BINARIES = 1;
-      }
-      //end Assignment #2
-      else if (stringCompare(option, (uint64_t*) "-sat"))
+      } else if (stringCompare(option, (uint64_t*) "-sat"))
         selfie_sat();
       else if (stringCompare(option, (uint64_t*) "-m"))
         return selfie_run(MIPSTER);
-      //Assignment #2
       else if (stringCompare(option, (uint64_t*) "-x")){
         if(HAS_DIFFERENT_BINARIES)
           return selfie_run_different_Binaries(XMIPSTER);
         else {
           return selfie_run(XMIPSTER);
         }
-      }
-      //end Assignment #2
-      else if (stringCompare(option, (uint64_t*) "-d")) {
+      } else if (stringCompare(option, (uint64_t*) "-d")) {
         debug = 1;
         return selfie_run(MIPSTER);
       } else if (stringCompare(option, (uint64_t*) "-y"))
         return selfie_run(HYPSTER);
       else if (stringCompare(option, (uint64_t*) "-z")){
-
         if(HAS_DIFFERENT_BINARIES)
           return selfie_run_different_Binaries(XHYPSTER);
         else {
           return selfie_run(XHYPSTER);
         }
-      }
-      else if (stringCompare(option, (uint64_t*) "-min"))
+      } else if (stringCompare(option, (uint64_t*) "-min"))
         return selfie_run(MINSTER);
       else if (stringCompare(option, (uint64_t*) "-mob"))
         return selfie_run(MOBSTER);
