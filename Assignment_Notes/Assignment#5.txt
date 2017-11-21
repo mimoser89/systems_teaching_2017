@@ -1,0 +1,150 @@
+Changes due to Assignment #5:
+
+First of all we need to copy the xMipster to the mipster, so that we can switch from one context to another different context also in mipster. Do the same with the xHypster to the Hypster. 
+Also update the handleSystemCalls(..) procedure to handle the new fork syscall. Another change was to set a unique pid to each created context in selfie_run(..) and selfie_run_different_binaries(..).
+
+procedure:
+void emitFork() {
+  createSymbolTableEntry(LIBRARY_TABLE, (uint64_t*) "fork", 0, PROCEDURE, UINT64STAR_T, 0, binaryLength);
+
+  emitIFormat(OP_DADDIU, REG_ZR, REG_V0, SYSCALL_FORK);
+  emitRFormat(OP_SPECIAL, 0, 0, 0, FCT_SYSCALL);
+
+  emitRFormat(OP_SPECIAL, REG_RA, 0, 0, FCT_JR);
+}
+
+
+changes:
+add this procedure to emit the fork syscall. Important here is to add "UINT64STAR_T" to get the return parameter.
+
+procedure:
+void implementFork(uint64_t* context) {
+
+  uint64_t* forkedContext;
+
+  //create new forked Context
+  forkedContext = createContext(getParent(context), getVirtualContext(context));
+
+  incrementRunningContexts();
+
+  if(debug_fork) {
+    print((uint64_t*) ": parent context ");
+    printHexadecimal((uint64_t) context, 8);
+    print((uint64_t*) " created child context ");
+    printHexadecimal((uint64_t) forkedContext, 8);
+    println();
+  }
+
+  //copy content of the context to the forked Context
+  copyContext(context, forkedContext);
+
+  //copy register of the context to the forked Context
+  copyRegister(context, forkedContext);
+
+  //copy page table of the context to the forked Context
+  copyPageTable(context, forkedContext);
+
+  new_PID = old_PID + 1;
+  setPid(forkedContext, old_PID);
+  *(getRegs(context)+REG_V0) = old_PID;
+  old_PID = new_PID;
+
+  *(getRegs(forkedContext)+REG_V0) = 0;
+
+}
+
+changes:
+add this procedure to implement the syscall fork. 
+- create the forked Context
+- increment counter of running contextes
+- copy content of the context to the forked context
+- copy registers of the context to the forked context
+- copy page table ot the context to the forked context
+- also important here is to handle the return register v0 in a proper way, like teached in the lesson
+
+
+procedue:
+void copyContext(uint64_t* context, uint64_t* forkedContext) {
+
+  //do not copy Lo,Me, Hi page, PT, REGS
+  setPC(forkedContext,getPC(context));
+  setLoReg(forkedContext,getLoReg(context));
+  setHiReg(forkedContext, getHiReg(context));
+  setProgramBreak(forkedContext, getProgramBreak(context));
+  setException(forkedContext, getException(context));
+  setFaultingPage(forkedContext, getFaultingPage(context));
+  setExitCode(forkedContext, getExitCode(context));
+  setParent(forkedContext, getParent(context));
+  setVirtualContext(forkedContext, getVirtualContext(context));
+  setName(forkedContext, getName(context));
+
+}
+
+changes:
+add this context to copy the content of the context to the forked context.
+Important here is not to copy:
+- l0,Me,Hi Page because they will set afterwoods in mapPage(...)
+- allocateContext(..) will create a new Pointer to the new page table an so they should not be copied with setPT(forkedContext,getPT(context)) 
+- allocateContext(..) will create a new Pointer to the new registers and so they should not be copied with setRegs(forkedContext, getRegs(context))
+
+
+procedure:
+void copyRegister(uint64_t* context, uint64_t* forkedContext) {
+  uint64_t reg_Index;
+  reg_Index = 0;
+
+  while(reg_Index < NUMBEROFREGISTERS) {
+    *(getRegs(forkedContext) + reg_Index) = *(getRegs(context) + reg_Index);
+    reg_Index = reg_Index + 1;
+  }
+}
+changes: 
+registers should be copied by dereferencing old registers with new registers.
+
+procedure:
+void copyPageTable(uint64_t* context, uint64_t* forkedContext) {
+
+  uint64_t pageIndex;
+  uint64_t vaddr;
+
+  pageIndex = 0;
+  vaddr = 0;
+
+  while(pageIndex <= getMePage(context)) {
+
+    if(isPageMapped(getPT(context), pageIndex)) {
+
+         mapPage(forkedContext, pageIndex, (uint64_t) palloc());
+
+         while(vaddr < (pageIndex + 1) * PAGESIZE) {
+           storeVirtualMemory(getPT(forkedContext),vaddr, loadVirtualMemory(getPT(context),vaddr));
+           vaddr = vaddr + SIZEOFUINT64STAR;
+         }
+    }
+    pageIndex = pageIndex + 1;
+  }
+
+  pageIndex = getPageOfVirtualAddress(VIRTUALMEMORYSIZE - REGISTERSIZE);
+
+  while(pageIndex >= getHiPage(context)) {
+    if(isPageMapped(getPT(context), pageIndex)) {
+
+         mapPage(forkedContext, pageIndex, (uint64_t) palloc());
+         vaddr = pageIndex * PAGESIZE;
+
+         while(vaddr < (pageIndex + 1) * PAGESIZE) {
+           storeVirtualMemory(getPT(forkedContext), vaddr, loadVirtualMemory(getPT(context),vaddr));
+           vaddr = vaddr + SIZEOFUINT64STAR;
+         }
+    }
+    pageIndex = pageIndex - 1;
+  }
+
+}
+changes: here the page table of the context gets copied to the forkedContext
+- loop until the pageIndex reaches getMePage(context)
+- it this page is mapped, mapPage of the forkedContext
+- while the vaddr less than the certain pageSize store the virtual memory by loading the virtual memory of the parent context
+- go to first step
+
+afterwoods do the same with the highest page down to hiPage. 

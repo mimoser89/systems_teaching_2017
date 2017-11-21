@@ -5308,13 +5308,13 @@ void implementFork(uint64_t* context) {
     println();
   }
 
-  //copy content of the context to the forked Context
+  //copy content of the context to the forked context
   copyContext(context, forkedContext);
 
-  //copy register of the context to the forked Context
+  //copy registers of the context to the forked context
   copyRegister(context, forkedContext);
 
-  //copy page table of the context to the forked Context
+  //copy page table of the context to the forked context
   copyPageTable(context, forkedContext);
 
   new_PID = old_PID + 1;
