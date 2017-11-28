@@ -117,7 +117,7 @@ void implementKill(uint64_t* context) {
 
 }
 
-changes: if a child get killed the status is set to IS_ZOMBIE_AND_CHILD, kill() return 0 if child was child, 0 otherwise
+changes: if a child get killed the status is set to IS_ZOMBIE_AND_CHILD, kill() return 0 if child was found, -1 otherwise
 
 procedure:
 void emitWait() {
@@ -289,11 +289,6 @@ uint64_t* findContextByPid(uint64_t pid) {
   return (uint64_t*) 0;
 }
 
-void freeContext(uint64_t* context) {
-  setNextContext(context, freeContexts);
-
-  freeContexts = context;
-}
 changes: finds context by his PID
 
 procedure:
