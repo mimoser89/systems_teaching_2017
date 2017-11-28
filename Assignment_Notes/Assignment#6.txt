@@ -1,0 +1,350 @@
+Changes due to Assignment #6:
+
+added two new fields to a context:
+status:
+A status can be NO_CHILD, IS_CHILD, IS_CHILD_AND_ZOMBIE
+childlist: 
+
+//child List struct
+// +----+----------------+
+// |  0 | nextContext    | pointer to next child
+// |  1 | prevContext    | pointer to previous child
+// |  2 | PID            | child pid
+// +----+----------------+
+uint64_t nextChild(uint64_t* child)                        { return (uint64_t) child; }
+uint64_t prevChild(uint64_t* child)                        { return (uint64_t) (child + 1); }
+uint64_t childPid(uint64_t* child)                         { return (uint64_t) (child + 2); }
+
+uint64_t* getNextChild(uint64_t* child)                    { return (uint64_t*) *child; }
+uint64_t* getPrevChild(uint64_t* child)                    { return (uint64_t*) *(child + 1); }
+uint64_t getChildPid(uint64_t* child)                      { return             *(child + 2); }
+
+void setNextChild(uint64_t* child, uint64_t* next)         { *child         = (uint64_t) next; }
+void setPrevChild(uint64_t* child, uint64_t* previous)     { *(child + 1)   = (uint64_t) previous;}
+void setChildPid(uint64_t* child,  uint64_t pid)           { *(child + 2)   = (uint64_t) pid; }
+
+
+procedure:
+void emitKill() {
+  createSymbolTableEntry(LIBRARY_TABLE, (uint64_t*) "kill", 0, PROCEDURE, UINT64_T, 0, binaryLength);
+
+  emitIFormat(OP_LD, REG_SP, REG_A0, 0); // pid
+  emitIFormat(OP_DADDIU, REG_SP, REG_SP, REGISTERSIZE);
+
+  emitIFormat(OP_DADDIU, REG_ZR, REG_V0, SYSCALL_KILL);
+  emitRFormat(OP_SPECIAL, 0, 0, 0, FCT_SYSCALL);
+
+  emitRFormat(OP_SPECIAL, REG_RA, 0, 0, FCT_JR);
+}
+
+changes: add this procedure to emit the kill syscall. 
+
+procedure:
+void implementKill(uint64_t* context) {
+
+  uint64_t pid;
+  uint64_t* child;
+  uint64_t* contextToKill;
+
+  //get the pid to kill
+  pid = *(getRegs(context) + REG_A0);
+
+  if(pid > 0) {
+
+    contextToKill = findContextByPid(pid);
+
+    //looks if context for given pid exists
+    if(contextToKill != (uint64_t*) 0) {
+      //looks for child in own childlist
+      child = findChildByPid(getChildList(context), pid);
+        //child found?
+        if(child != (uint64_t*) 0)  {
+
+          decrementRunningContexts();
+          //set status to IS_CHILD_AND_ZOMBIE
+          //do not delete from usedContexts, iterate over zombie child
+          setStatus(contextToKill, IS_CHILD_AND_ZOMBIE);
+
+          //set return value to 0
+          *(getRegs(context)+REG_V0) = 0;
+
+          if(debug_kill) {
+            println();
+            print((uint64_t*) "parent context ");
+            printHexadecimal((uint64_t) context, 8);
+            print((uint64_t*) " with PID: ");
+            printInteger(getPid(context));
+            print((uint64_t*) " killed child context ");
+            printHexadecimal((uint64_t) contextToKill, 8);
+            print((uint64_t*) " with PID: ");
+            printInteger(getPid(contextToKill));
+            println();
+          }
+
+        }
+        else {
+          //set return value to -1
+          println();
+          print((uint64_t*)"Child not found: not able to kill PID: ");
+          printInteger(pid);
+          println();
+          println();
+
+          *(getRegs(context)+REG_V0) = -1;
+        }
+
+    }
+    else {
+      //set return value to -1
+      println();
+      print((uint64_t*)"Context not found: not able to kill PID: ");
+      printInteger(pid);
+      println();
+
+      *(getRegs(context)+REG_V0) = -1;
+    }
+
+  }
+  else {
+    //set return value to -1
+    println();
+    print((uint64_t*)"PID failure: not able to kill PID: ");
+    printInteger(pid);
+    println();
+
+    *(getRegs(context)+REG_V0) = -1;
+  }
+
+}
+
+changes: if a child get killed the status is set to IS_ZOMBIE_AND_CHILD, kill() return 0 if child was child, 0 otherwise
+
+procedure:
+void emitWait() {
+  createSymbolTableEntry(LIBRARY_TABLE, (uint64_t*) "wait", 0, PROCEDURE, UINT64_T, 0, binaryLength);
+
+  emitIFormat(OP_DADDIU, REG_ZR, REG_V0, SYSCALL_WAIT);
+  emitRFormat(OP_SPECIAL, 0, 0, 0, FCT_SYSCALL);
+
+  emitRFormat(OP_SPECIAL, REG_RA, 0, 0, FCT_JR);
+}
+
+changes: add this procedure to emit the wait syscall. 
+
+procedure:
+void implementWait(uint64_t* context){
+
+  uint64_t* childList;
+  uint64_t* zombieChild;
+
+  //looks for childs?
+  childList = getChildList(context);
+
+  //if no child in childList return 0
+  if(childList == (uint64_t*) 0) {
+    //set return value to 0
+    *(getRegs(context)+REG_V0) = 0;
+  }
+  // else childList is not null
+  else {
+    //check if zombieChild exists
+    zombieChild = lookForZombieChildren(context, childList);
+
+    if(zombieChild != (uint64_t*) 0) {
+
+      //set pid of zombi child in V0
+      *(getRegs(context) + REG_V0) = getPid(zombieChild);
+
+      //delete context from usedContexts list
+      usedContexts = deleteContext(zombieChild, usedContexts);
+    }
+    //no zombie child, wait for it
+    else {
+      contextWait(context);
+
+      if(debug_wait) {
+        println();
+        print((uint64_t*) "context ");
+        printHexadecimal((uint64_t) context, 8);
+        print((uint64_t*) " with PID: ");
+        printInteger(getPid(context));
+        print((uint64_t*) " wait for child");
+        println();
+      }
+    }
+  }
+}
+
+changes: 
+  - 1. if no child return 0
+  - 2. if there is a zombiechild, delete it from it's list and return it's pid
+  - 3. if there is no zombiechild wait for it and follow step 2
+
+procedure:
+uint64_t* lookForZombieChildren(uint64_t* context, uint64_t* childList) {
+
+  uint64_t* child;
+  uint64_t childPid;
+  uint64_t* childContext;
+
+  child = childList;
+
+  while(child != (uint64_t*) 0) {
+    childPid = getChildPid(child);
+
+    childContext = findContextByPid(childPid);
+
+    //check if status is IS_CHILD_AND_ZOMBIE
+    if(getStatus(childContext) == IS_CHILD_AND_ZOMBIE) {
+      //delete it from childList
+      setChildList(context, deleteFromChildList(child, getChildList(context)));
+      return childContext;
+    }
+
+    child = getNextChild(child);
+  }
+  return (uint64_t*) 0;
+}
+
+changes: helperProcedure which looks for zombieChildrenContexts
+
+procedures:
+uint64_t* insertIntoChildList(uint64_t childPid, uint64_t* in) {
+
+  uint64_t* childContext;
+
+  childContext = smalloc(3 * SIZEOFUINT64);
+
+   setNextChild(childContext, in);
+   setPrevChild(childContext, (uint64_t*) 0);
+
+   if (in != (uint64_t*) 0)
+     setPrevChild(in, childContext);
+
+   setChildPid(childContext, childPid);
+
+   return childContext;
+}
+
+uint64_t* findChildByPid(uint64_t* childList, uint64_t pid) {
+  uint64_t* child;
+  child = childList;
+
+  while (child != (uint64_t*) 0) {
+    if(getChildPid(child) == pid) {
+      return child;
+    }
+    child = getNextChild(child);
+  }
+  return (uint64_t*) 0;
+}
+
+uint64_t* deleteFromChildList(uint64_t* child, uint64_t* from) {
+
+  if (getNextChild(child) != (uint64_t*) 0)
+    setPrevChild(getNextChild(child), getPrevChild(child));
+
+  if (getPrevChild(child) != (uint64_t*) 0) {
+    setNextChild(getPrevChild(child), getNextChild(child));
+    setPrevChild(child, (uint64_t*) 0);
+  } else
+    from = getNextChild(child);
+
+  return from;
+
+}
+
+void printAllChildPids(uint64_t *childlist) {
+
+  uint64_t* child;
+  child = childlist;
+
+  if(child != (uint64_t*) 0) {
+    while(child != (uint64_t*) 0) {
+      println();
+      print((uint64_t*)"Child - PID: ");
+      printInteger(getChildPid(child));
+      child = getNextChild(child);
+    }
+  }
+  else
+    print((uint64_t*)"There are no childs");
+    println();
+
+}
+
+changes: this helperprocedures are for accessing the childList
+
+procedure:
+uint64_t* findContextByPid(uint64_t pid) {
+  uint64_t* context;
+  context = usedContexts;
+
+  while (context != (uint64_t*) 0) {
+    if(getPid(context) == pid) {
+      return context;
+    }
+    context = getNextContext(context);
+  }
+  return (uint64_t*) 0;
+}
+
+void freeContext(uint64_t* context) {
+  setNextContext(context, freeContexts);
+
+  freeContexts = context;
+}
+changes: finds context by his PID
+
+procedure:
+void handleParentDelete(uint64_t* context) {
+
+  uint64_t* child;
+  uint64_t* childContext;
+
+  child = getChildList(context);
+
+  while(child != (uint64_t*) 0) {
+
+    childContext = findContextByPid(getChildPid(child));
+    //if child is zombie delete it from usedContexts list
+    if(getStatus(childContext) == IS_CHILD_AND_ZOMBIE)
+      usedContexts = deleteContext(childContext, usedContexts);
+    //if child and no zombie, set it to NO_CHILD
+    else if(getStatus(childContext) == IS_CHILD)
+      setStatus(childContext, NO_CHILD);
+
+      child = getNextChild(child);
+  }
+}
+
+changes: helpermethod for handling ParentDelete, important: 
+if parent exits, set all childs to NO_CHILD, if there is a zombieChild, delete it.
+
+procedure:
+uint64_t* handleExitOneContext(uint64_t* fromContext) {
+  uint64_t* toContext;
+
+  decrementRunningContexts();
+
+  toContext = getChangedNextContext(fromContext);
+
+  //check if context is child
+  if(getStatus(fromContext) == IS_CHILD) {
+    //if is child, set status to IS_CHILD_AND_ZOMBIE
+    //do not delete from usedContexts, iterate over zombie child
+    setStatus(fromContext, IS_CHILD_AND_ZOMBIE);
+
+  }
+  //must be parent, NO_CHILD, delete it from usedContexts list
+  else {
+    handleParentDelete(fromContext);
+    usedContexts = deleteContext(fromContext,usedContexts);
+  }
+
+  return toContext;
+}
+
+changes: helperprocedure for handling one context exit, if a child exits normaly set it to IS_CHILD_AND_ZOMBIE
+
+
