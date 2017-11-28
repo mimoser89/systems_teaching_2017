@@ -90,6 +90,8 @@ uint64_t* malloc(uint64_t size);
 void lock();
 void unlock();
 uint64_t fork();
+uint64_t kill(uint64_t pid);
+uint64_t wait();
 
 // -----------------------------------------------------------------
 // ----------------------- LIBRARY PROCEDURES ----------------------
@@ -852,16 +854,22 @@ void emitUnlock();
 void implementUnlock(uint64_t* context);
 
 uint64_t hasLock(uint64_t* context);
-void wait(uint64_t* context);
-//Assignment #5
+void contextWait(uint64_t* context);
+
 void emitFork();
 void implementFork(uint64_t* context);
 
 void copyContext(uint64_t* context, uint64_t* forkedContext);
 void copyRegister(uint64_t* context, uint64_t* forkedContext);
 void copyPageTable(uint64_t* context, uint64_t* forkedContext);
-//end Assignment #5
 
+void emitKill();
+void implementKill(uint64_t* context);
+
+void emitWait();
+void implementWait(uint64_t* context);
+
+uint64_t* lookForZombieChildren(uint64_t* context, uint64_t* childList);
 
 // ------------------------ GLOBAL CONSTANTS -----------------------
 
@@ -885,11 +893,17 @@ uint64_t* CURRENT_LOCKED_CONTEXT = (uint64_t*) 0;
 //Assignment #5
 uint64_t SYSCALL_FORK = 4008;
 
-uint64_t debug_fork = 0;
+uint64_t debug_fork = 1;
 
-uint64_t old_PID = 0;
+uint64_t old_PID = 1;
 uint64_t new_PID;
 //end Assignment #5
+
+uint64_t SYSCALL_KILL = 9999;
+uint64_t debug_kill = 1;
+
+uint64_t SYSCALL_WAIT = 1234;
+uint64_t debug_wait = 1;
 
 // -----------------------------------------------------------------
 // ----------------------- HYPSTER SYSCALLS ------------------------
@@ -1117,7 +1131,17 @@ void resetInterpreter() {
 
 uint64_t* allocateContext(uint64_t* parent, uint64_t* vctxt, uint64_t* in);
 
+uint64_t* insertIntoChildList(uint64_t childPid, uint64_t* in);
+
+uint64_t* findChildByPid(uint64_t* childList, uint64_t pid);
+
+uint64_t* deleteFromChildList(uint64_t* child, uint64_t* from);
+
+void printAllChildPids(uint64_t *childlist);
+
 uint64_t* findContext(uint64_t* parent, uint64_t* vctxt, uint64_t* in);
+
+uint64_t* findContextByPid(uint64_t pid);
 
 void freeContext(uint64_t* context);
 
@@ -1128,7 +1152,6 @@ uint64_t* getChangedNextContext(uint64_t* context);
 void incrementRunningContexts();
 
 void decrementRunningContexts();
-
 
 // context struct:
 // +----+----------------+
@@ -1150,6 +1173,8 @@ void decrementRunningContexts();
 // | 15 | virtualContext | virtual context address
 // | 16 | name           | binary name loaded into context
 // | 17 | PID            | pid of the context
+// | 18 | isChild        | 1 if is child, 0 otherwise
+
 // +----+----------------+
 
 uint64_t nextContext(uint64_t* context)    { return (uint64_t) context; }
@@ -1170,6 +1195,8 @@ uint64_t Parent(uint64_t* context)         { return (uint64_t) (context + 14); }
 uint64_t VirtualContext(uint64_t* context) { return (uint64_t) (context + 15); }
 uint64_t Name(uint64_t* context)           { return (uint64_t) (context + 16); }
 uint64_t pid(uint64_t* context)            { return (uint64_t) (context + 17); }
+uint64_t status(uint64_t* context)         { return (uint64_t) (context + 18); }
+uint64_t childList(uint64_t *context)      { return (uint64_t) *(context + 19); }
 
 uint64_t* getNextContext(uint64_t* context)    { return (uint64_t*) *context; }
 uint64_t* getPrevContext(uint64_t* context)    { return (uint64_t*) *(context + 1); }
@@ -1189,6 +1216,8 @@ uint64_t* getParent(uint64_t* context)         { return (uint64_t*) *(context + 
 uint64_t* getVirtualContext(uint64_t* context) { return (uint64_t*) *(context + 15); }
 uint64_t* getName(uint64_t* context)           { return (uint64_t*) *(context + 16); }
 uint64_t  getPid(uint64_t* context)            { return             *(context + 17); }
+uint64_t  getStatus(uint64_t* context)         { return             *(context + 18); }
+uint64_t* getChildList(uint64_t *context)      { return (uint64_t*) *(context + 19); }
 
 void setNextContext(uint64_t* context, uint64_t* next)     { *context        = (uint64_t) next; }
 void setPrevContext(uint64_t* context, uint64_t* prev)     { *(context + 1)  = (uint64_t) prev; }
@@ -1208,6 +1237,27 @@ void setParent(uint64_t* context, uint64_t* parent)        { *(context + 14) = (
 void setVirtualContext(uint64_t* context, uint64_t* vctxt) { *(context + 15) = (uint64_t) vctxt; }
 void setName(uint64_t* context, uint64_t* name)            { *(context + 16) = (uint64_t) name; }
 void setPid(uint64_t* context, uint64_t pid)               { *(context + 17) = pid; }
+void setStatus(uint64_t* context, uint64_t status)         { *(context + 18) = status; }
+void setChildList(uint64_t* context, uint64_t* childList)  { *(context + 19) = (uint64_t) childList; }
+
+//child List struct
+// +----+----------------+
+// |  0 | nextContext    | pointer to next child
+// |  1 | prevContext    | pointer to previous child
+// |  2 | PID            | child pid
+// +----+----------------+
+uint64_t nextChild(uint64_t* child)                        { return (uint64_t) child; }
+uint64_t prevChild(uint64_t* child)                        { return (uint64_t) (child + 1); }
+uint64_t childPid(uint64_t* child)                         { return (uint64_t) (child + 2); }
+
+uint64_t* getNextChild(uint64_t* child)                    { return (uint64_t*) *child; }
+uint64_t* getPrevChild(uint64_t* child)                    { return (uint64_t*) *(child + 1); }
+uint64_t getChildPid(uint64_t* child)                      { return             *(child + 2); }
+
+void setNextChild(uint64_t* child, uint64_t* next)         { *child         = (uint64_t) next; }
+void setPrevChild(uint64_t* child, uint64_t* previous)     { *(child + 1)   = (uint64_t) previous;}
+void setChildPid(uint64_t* child,  uint64_t pid)           { *(child + 2)   = (uint64_t) pid; }
+
 
 // -----------------------------------------------------------------
 // -------------------------- MICROKERNEL --------------------------
@@ -1271,6 +1321,10 @@ uint64_t isBootLevelZero();
 
 uint64_t handleSystemCalls(uint64_t* context);
 
+void handleParentDelete(uint64_t* context);
+
+uint64_t* handleExitOneContext(uint64_t* fromContext);
+
 uint64_t mipster(uint64_t* toContext);
 uint64_t xMipster(uint64_t* toContext);
 uint64_t minster(uint64_t* toContext);
@@ -1292,7 +1346,14 @@ uint64_t EXIT = 1;
 
 uint64_t EXIT_ONE_CONTEXT = 2;
 
+uint64_t EXIT_PID_CONTEXT = 3;
+
 uint64_t COUNTER_RUNNING_CONTEXT = 0;
+
+//Global status context
+uint64_t NO_CHILD               = 0;
+uint64_t IS_CHILD               = 1;
+uint64_t IS_CHILD_AND_ZOMBIE    = 2;
 
 // signed 32-bit exit codes [int]
 uint64_t EXITCODE_NOERROR = 0;
@@ -4147,6 +4208,10 @@ void selfie_compile() {
 
   emitFork();
 
+  emitWait();
+
+  emitKill();
+
   while (link) {
     if (numberOfRemainingArguments() == 0)
       link = 0;
@@ -4821,6 +4886,8 @@ void implementExit(uint64_t* context) {
   print(selfieName);
   print((uint64_t*) ": ");
   print(getName(context));
+  print((uint64_t*) " with PID: ");
+  printInteger(getPid(context));
   print((uint64_t*) " exiting with exit code ");
   printInteger(signExtend(getExitCode(context), INT_BITWIDTH));
   print((uint64_t*) " and ");
@@ -5273,17 +5340,19 @@ uint64_t hasLock(uint64_t* context) {
   return 0;
 }
 
-void wait(uint64_t* context) {
+void contextWait(uint64_t* context) {
   uint64_t tempPC;
 
   tempPC = getPC(context);
   tempPC = tempPC - 2 * INSTRUCTIONSIZE;
 
-  setPC(context,tempPC);
+  setPC(context, tempPC);
+
 }
+
 //Assignment #5
 void emitFork() {
-  createSymbolTableEntry(LIBRARY_TABLE, (uint64_t*) "fork", 0, PROCEDURE, UINT64STAR_T, 0, binaryLength);
+  createSymbolTableEntry(LIBRARY_TABLE, (uint64_t*) "fork", 0, PROCEDURE, UINT64_T, 0, binaryLength);
 
   emitIFormat(OP_DADDIU, REG_ZR, REG_V0, SYSCALL_FORK);
   emitRFormat(OP_SPECIAL, 0, 0, 0, FCT_SYSCALL);
@@ -5300,14 +5369,6 @@ void implementFork(uint64_t* context) {
 
   incrementRunningContexts();
 
-  if(debug_fork) {
-    print((uint64_t*) ": parent context ");
-    printHexadecimal((uint64_t) context, 8);
-    print((uint64_t*) " created child context ");
-    printHexadecimal((uint64_t) forkedContext, 8);
-    println();
-  }
-
   //copy content of the context to the forked context
   copyContext(context, forkedContext);
 
@@ -5318,11 +5379,34 @@ void implementFork(uint64_t* context) {
   copyPageTable(context, forkedContext);
 
   new_PID = old_PID + 1;
+
+  //set the pid of the forkedContext
   setPid(forkedContext, old_PID);
+
+  //set context to child
+  setStatus(forkedContext, IS_CHILD);
+
+  //insert child into childList of parent
+  setChildList(context, insertIntoChildList(old_PID, getChildList(context)));
+
+  //set return values
   *(getRegs(context)+REG_V0) = old_PID;
   old_PID = new_PID;
 
   *(getRegs(forkedContext)+REG_V0) = 0;
+
+  if(debug_fork) {
+    println();
+    print((uint64_t*) "parent context ");
+    printHexadecimal((uint64_t) context, 8);
+    print((uint64_t*) " with PID: ");
+    printInteger(getPid(context));
+    print((uint64_t*) " created child context ");
+    printHexadecimal((uint64_t) forkedContext, 8);
+    print((uint64_t*) " with PID: ");
+    printInteger(getPid(forkedContext));
+    println();
+  }
 
 }
 
@@ -5333,7 +5417,7 @@ void copyContext(uint64_t* context, uint64_t* forkedContext) {
   setLoReg(forkedContext,getLoReg(context));
   setHiReg(forkedContext, getHiReg(context));
   setProgramBreak(forkedContext, getProgramBreak(context));
-  setException(forkedContext, getException(context));
+  setException(forkedContext, EXCEPTION_NOEXCEPTION);
   setFaultingPage(forkedContext, getFaultingPage(context));
   setExitCode(forkedContext, getExitCode(context));
   setParent(forkedContext, getParent(context));
@@ -5393,6 +5477,178 @@ void copyPageTable(uint64_t* context, uint64_t* forkedContext) {
 }
 //end Assignment #5
 
+void emitKill() {
+  createSymbolTableEntry(LIBRARY_TABLE, (uint64_t*) "kill", 0, PROCEDURE, UINT64_T, 0, binaryLength);
+
+  emitIFormat(OP_LD, REG_SP, REG_A0, 0); // pid
+  emitIFormat(OP_DADDIU, REG_SP, REG_SP, REGISTERSIZE);
+
+  emitIFormat(OP_DADDIU, REG_ZR, REG_V0, SYSCALL_KILL);
+  emitRFormat(OP_SPECIAL, 0, 0, 0, FCT_SYSCALL);
+
+  emitRFormat(OP_SPECIAL, REG_RA, 0, 0, FCT_JR);
+}
+
+void implementKill(uint64_t* context) {
+
+  uint64_t pid;
+  uint64_t* child;
+  uint64_t* contextToKill;
+
+  //get the pid to kill
+  pid = *(getRegs(context) + REG_A0);
+
+  if(pid > 0) {
+
+    contextToKill = findContextByPid(pid);
+
+    //looks if context for given pid exists
+    if(contextToKill != (uint64_t*) 0) {
+      //looks for child in own childlist
+      child = findChildByPid(getChildList(context), pid);
+        //child found?
+        if(child != (uint64_t*) 0)  {
+
+          decrementRunningContexts();
+          //set status to IS_CHILD_AND_ZOMBIE
+          //do not delete, iterate over zombie child
+          setStatus(contextToKill, IS_CHILD_AND_ZOMBIE);
+
+          //set return value to 0
+          *(getRegs(context)+REG_V0) = 0;
+
+          if(debug_kill) {
+            println();
+            print((uint64_t*) "parent context ");
+            printHexadecimal((uint64_t) context, 8);
+            print((uint64_t*) " with PID: ");
+            printInteger(getPid(context));
+            print((uint64_t*) " killed child context ");
+            printHexadecimal((uint64_t) contextToKill, 8);
+            print((uint64_t*) " with PID: ");
+            printInteger(getPid(contextToKill));
+            println();
+          }
+
+        }
+        else {
+          //set return value to -1
+          println();
+          print((uint64_t*)"Child not found: not able to kill PID: ");
+          printInteger(pid);
+          println();
+
+          *(getRegs(context)+REG_V0) = -1;
+        }
+
+    }
+    else {
+      //set return value to -1
+      println();
+      print((uint64_t*)"Context not found: not able to kill PID: ");
+      printInteger(pid);
+
+      *(getRegs(context)+REG_V0) = -1;
+    }
+
+  }
+  else {
+    //set return value to -1
+    println();
+    print((uint64_t*)"PID failure: not able to kill PID: ");
+    printInteger(pid);
+
+    *(getRegs(context)+REG_V0) = -1;
+  }
+
+}
+
+void emitWait() {
+  createSymbolTableEntry(LIBRARY_TABLE, (uint64_t*) "wait", 0, PROCEDURE, UINT64_T, 0, binaryLength);
+
+  emitIFormat(OP_DADDIU, REG_ZR, REG_V0, SYSCALL_WAIT);
+  emitRFormat(OP_SPECIAL, 0, 0, 0, FCT_SYSCALL);
+
+  emitRFormat(OP_SPECIAL, REG_RA, 0, 0, FCT_JR);
+}
+
+void implementWait(uint64_t* context){
+
+  uint64_t* childList;
+  uint64_t* zombieChild;
+
+  //looks for childs?
+  childList = getChildList(context);
+
+  //if no child in childList return 0
+  if(childList == (uint64_t*) 0) {
+    //set return value to 0
+    print((uint64_t*)"goes here");
+    *(getRegs(context)+REG_V0) = 0;
+
+  }
+
+  //if childList not null
+  if(childList != (uint64_t*) 0) {
+    //printAllChildPids(childList);
+
+    //check if zombieChild exists
+    zombieChild = lookForZombieChildren(context, childList);
+    if(zombieChild != (uint64_t*) 0) {
+
+      //delete it from usedContexts list
+      usedContexts = deleteContext(zombieChild, usedContexts);
+
+      //return pid of zombi child
+      *(getRegs(context) + REG_V0) = getPid(zombieChild);
+
+    }
+
+    //no zombie child, wait for it
+    else {
+      contextWait(context);
+
+      if(debug_wait) {
+        println();
+        print((uint64_t*) "context ");
+        printHexadecimal((uint64_t) context, 8);
+        print((uint64_t*) " with PID: ");
+        printInteger(getPid(context));
+        print((uint64_t*) " wait for child");
+        println();
+      }
+    }
+  }
+
+}
+
+//look for zombieChildren
+uint64_t* lookForZombieChildren(uint64_t* context, uint64_t* childList) {
+
+  uint64_t* child;
+  uint64_t childPid;
+  uint64_t* childContext;
+
+  child = childList;
+
+  while(child != (uint64_t*) 0) {
+    childPid = getChildPid(child);
+
+    childContext = findContextByPid(childPid);
+
+    //check if status is IS_CHILD_AND_ZOMBIE
+    if(getStatus(childContext) == IS_CHILD_AND_ZOMBIE) {
+      //delete it from childList
+      setChildList(context, deleteFromChildList(child, getChildList(context)));
+      return childContext;
+    }
+
+    child = getNextChild(child);
+  }
+
+  return (uint64_t*) 0;
+}
+
 // -----------------------------------------------------------------
 // ----------------------- HYPSTER SYSCALLS ------------------------
 // -----------------------------------------------------------------
@@ -5445,10 +5701,14 @@ void doSwitch(uint64_t* toContext, uint64_t timeout) {
     printHexadecimal((uint64_t) fromContext, 8);
     print((uint64_t*) " Name: ");
     print((uint64_t*) getName(fromContext));
+    print((uint64_t*) " with PID ");
+    printInteger(getPid(fromContext));
     print((uint64_t*) " to context ");
     printHexadecimal((uint64_t) toContext, 8);
     print((uint64_t*) " Name: ");
     print((uint64_t*) getName(toContext));
+    print((uint64_t*) " with PID ");
+    printInteger(getPid(toContext));
     if (signedGreaterThan(timeout, -1)) {
       print((uint64_t*) " to execute ");
       printInteger(timeout);
@@ -5461,6 +5721,7 @@ void doSwitch(uint64_t* toContext, uint64_t timeout) {
 void implementSwitch() {
 
   //debug_switch = 1;
+  //debug = 1;
   saveContext(currentContext);
 
   // cache context on my boot level before switching
@@ -6324,12 +6585,16 @@ void execute() {
 void interrupt() {
   if (timer > 0)
     timer = timer - 1;
+    //printInteger(timer);
 
   if (timer == 0)
-    if (getException(currentContext) == EXCEPTION_NOEXCEPTION)
+    if (getException(currentContext) == EXCEPTION_NOEXCEPTION) {
       // only throw exception if no other is pending
       // TODO: handle multiple pending exceptions
       throwException(EXCEPTION_TIMER, 0);
+
+    }
+
 }
 
 uint64_t* runUntilException() {
@@ -6488,7 +6753,7 @@ uint64_t* allocateContext(uint64_t* parent, uint64_t* vctxt, uint64_t* in) {
   uint64_t* context;
 
   if (freeContexts == (uint64_t*) 0)
-    context = smalloc(6 * SIZEOFUINT64STAR + 12 * SIZEOFUINT64);
+    context = smalloc(8 * SIZEOFUINT64STAR + 20 * SIZEOFUINT64);
   else {
     context = freeContexts;
 
@@ -6533,9 +6798,76 @@ uint64_t* allocateContext(uint64_t* parent, uint64_t* vctxt, uint64_t* in) {
 
   setName(context, (uint64_t*) 0);
 
-  setPid(context,-1);
+  //setPid(context, -1);
+
+  setStatus(context, NO_CHILD);
+  setChildList(context, (uint64_t*) 0);
 
   return context;
+}
+
+uint64_t* insertIntoChildList(uint64_t childPid, uint64_t* in) {
+
+  uint64_t* childContext;
+
+  childContext = smalloc(3 * SIZEOFUINT64);
+
+   setNextChild(childContext, in);
+   setPrevChild(childContext, (uint64_t*) 0);
+
+   if (in != (uint64_t*) 0)
+     setPrevChild(in, childContext);
+
+   setChildPid(childContext, childPid);
+
+   return childContext;
+}
+
+uint64_t* findChildByPid(uint64_t* childList, uint64_t pid) {
+  uint64_t* child;
+  child = childList;
+
+  while (child != (uint64_t*) 0) {
+    if(getChildPid(child) == pid) {
+      return child;
+    }
+    child = getNextChild(child);
+  }
+  return (uint64_t*) 0;
+}
+
+uint64_t* deleteFromChildList(uint64_t* child, uint64_t* from) {
+
+  if (getNextChild(child) != (uint64_t*) 0)
+    setPrevChild(getNextChild(child), getPrevChild(child));
+
+  if (getPrevChild(child) != (uint64_t*) 0) {
+    setNextChild(getPrevChild(child), getNextChild(child));
+    setPrevChild(child, (uint64_t*) 0);
+  } else
+    from = getNextChild(child);
+
+  return from;
+
+}
+
+void printAllChildPids(uint64_t *childlist) {
+
+  uint64_t* child;
+  child = childlist;
+
+  if(child != (uint64_t*) 0) {
+    while(child != (uint64_t*) 0) {
+      println();
+      print((uint64_t*)"Child - PID: ");
+      printInteger(getChildPid(child));
+      child = getNextChild(child);
+    }
+  }
+  else
+    print((uint64_t*)"There are no childs");
+    println();
+
 }
 
 uint64_t* findContext(uint64_t* parent, uint64_t* vctxt, uint64_t* in) {
@@ -6551,6 +6883,19 @@ uint64_t* findContext(uint64_t* parent, uint64_t* vctxt, uint64_t* in) {
     context = getNextContext(context);
   }
 
+  return (uint64_t*) 0;
+}
+
+uint64_t* findContextByPid(uint64_t pid) {
+  uint64_t* context;
+  context = usedContexts;
+
+  while (context != (uint64_t*) 0) {
+    if(getPid(context) == pid) {
+      return context;
+    }
+    context = getNextContext(context);
+  }
   return (uint64_t*) 0;
 }
 
@@ -6594,6 +6939,10 @@ uint64_t* getChangedNextContext(uint64_t* context) {
       nextContext = getNextContext(nextContext);
     }
   }
+
+  //check if next context is zombie
+  if(getStatus(nextContext) == IS_CHILD_AND_ZOMBIE)
+    nextContext = getChangedNextContext(nextContext);
 
   return nextContext;
 
@@ -6990,6 +7339,7 @@ uint64_t isBootLevelZero() {
 
 uint64_t handleSystemCalls(uint64_t* context) {
   uint64_t v0;
+
   if (getException(context) == EXCEPTION_SYSCALL) {
     v0 = *(getRegs(context)+REG_V0);
 
@@ -7001,23 +7351,25 @@ uint64_t handleSystemCalls(uint64_t* context) {
       if(hasLock(context))
         implementWrite(context);
       else
-        wait(context);
+        contextWait(context);
     } else if (v0 == SYSCALL_OPEN)
       implementOpen(context);
     else if (v0 == SYSCALL_LOCK){
       if(hasLock(context))
         implementLock(context);
       else
-        wait(context);
+        contextWait(context);
     } else if (v0 == SYSCALL_UNLOCK){
       if(hasLock(context))
         implementUnlock(context);
       else
-        wait(context);
-    //Assignment #5
+        contextWait(context);
+    } else if (v0 == SYSCALL_WAIT) {
+      implementWait(context);
     } else if (v0 == SYSCALL_FORK) {
       implementFork(context);
-    //end Assignment #5
+    } else if (v0 == SYSCALL_KILL) {
+      implementKill(context);
     } else if (v0 == SYSCALL_EXIT) {
       //if there are more then one contexts running
       //return the new variable EXIT_ONE_CONTEXT
@@ -7057,18 +7409,63 @@ uint64_t handleSystemCalls(uint64_t* context) {
   return DONOTEXIT;
 }
 
-//Assignment #5
+void handleParentDelete(uint64_t* context) {
+
+  uint64_t* child;
+  uint64_t* childContext;
+
+  child = getChildList(context);
+
+  while(child != (uint64_t*) 0) {
+
+    childContext = findContextByPid(getChildPid(child));
+    //if child is zombie delete it from usedContexts list
+    if(getStatus(childContext) == IS_CHILD_AND_ZOMBIE)
+      usedContexts = deleteContext(childContext, usedContexts);
+    //if child, set it to NO_CHILD
+    else if(getStatus(childContext) == IS_CHILD)
+      setStatus(childContext, NO_CHILD);
+
+      child = getNextChild(child);
+  }
+}
+
+uint64_t* handleExitOneContext(uint64_t* fromContext) {
+  uint64_t* toContext;
+
+  decrementRunningContexts();
+
+  toContext = getChangedNextContext(fromContext);
+
+  //check if context is child
+  if(getStatus(fromContext) == IS_CHILD) {
+    //if is child, set status as zombie
+    //do not delete, iterate over zombie child
+    setStatus(fromContext, IS_CHILD_AND_ZOMBIE);
+
+  }
+  //must be parent
+  else {
+    handleParentDelete(fromContext);
+    usedContexts = deleteContext(fromContext,usedContexts);
+  }
+
+  return toContext;
+}
+
 uint64_t mipster(uint64_t* toContext) {
 
   uint64_t timeout;
   uint64_t* fromContext;
   uint64_t tempHandleSystemCall;
+
   uint64_t hasExit;
 
   print((uint64_t*) "Mipster");
   println();
 
   debug_switch = 0;
+  debug = 0;
 
   timeout = TIMESLICE;
 
@@ -7076,12 +7473,11 @@ uint64_t mipster(uint64_t* toContext) {
 
     hasExit = 0;
     //first time switches to the self context
-    fromContext = mipster_switch(toContext, timeout);
+    fromContext = mipster_switch(toContext, TIMESLICE);
 
     if (getParent(fromContext) != MY_CONTEXT) {
       // switch to parent which is in charge of handling exceptions
       toContext = getParent(fromContext);
-
       timeout = TIMEROFF;
     } else {
        // we are the parent in charge of handling exceptions
@@ -7095,15 +7491,12 @@ uint64_t mipster(uint64_t* toContext) {
         tempHandleSystemCall = handleSystemCalls(fromContext);
 
         //checks if all contexts exited
-        if(tempHandleSystemCall == EXIT)
+        if(tempHandleSystemCall == EXIT) {
           return getExitCode(fromContext);
-
+        }
         //checks if only one context exited
         else if(tempHandleSystemCall == EXIT_ONE_CONTEXT){
-          decrementRunningContexts();
-
-          toContext = getChangedNextContext(fromContext);
-          usedContexts = deleteContext(fromContext,usedContexts);
+          toContext = handleExitOneContext(fromContext);
           hasExit = 1;
         }
       }
@@ -7112,12 +7505,12 @@ uint64_t mipster(uint64_t* toContext) {
         //set next context
         toContext = getChangedNextContext(fromContext);
       }
+
       timeout = TIMESLICE;
 
     }
   }
 }
-//end Assignment #5
 
 uint64_t xMipster(uint64_t* toContext) {
 
@@ -7164,10 +7557,7 @@ uint64_t xMipster(uint64_t* toContext) {
 
         //checks if only one context exited
         else if(tempHandleSystemCall == EXIT_ONE_CONTEXT){
-          decrementRunningContexts();
-
-          toContext = getChangedNextContext(fromContext);
-          usedContexts = deleteContext(fromContext,usedContexts);
+          toContext = handleExitOneContext(fromContext);
           hasExit = 1;
         }
       }
@@ -7250,7 +7640,6 @@ uint64_t mobster(uint64_t* toContext) {
   }
 }
 
-//Assignment #5
 uint64_t hypster(uint64_t* toContext) {
   uint64_t* fromContext;
   uint64_t tempHandleSystemCall;
@@ -7271,15 +7660,13 @@ uint64_t hypster(uint64_t* toContext) {
       tempHandleSystemCall = handleSystemCalls(fromContext);
 
       //checks if all contexts exited
-      if(tempHandleSystemCall == EXIT)
-        return getExitCode(fromContext);
+      if(tempHandleSystemCall == EXIT) {
 
+        return getExitCode(fromContext);
+      }
       //checks if only one context exited
       else if(tempHandleSystemCall == EXIT_ONE_CONTEXT){
-        decrementRunningContexts();
-
-        toContext = getChangedNextContext(fromContext);
-        usedContexts = deleteContext(fromContext,usedContexts);
+        toContext = handleExitOneContext(fromContext);
         hasExit = 1;
       }
     }
@@ -7291,7 +7678,6 @@ uint64_t hypster(uint64_t* toContext) {
     }
   }
 }
-//end Assignment #5
 
 uint64_t xHypster(uint64_t* toContext) {
   uint64_t* fromContext;
@@ -7316,14 +7702,11 @@ uint64_t xHypster(uint64_t* toContext) {
       if(tempHandleSystemCall == EXIT)
         return getExitCode(fromContext);
 
-      //checks if only one context exited
-      else if(tempHandleSystemCall == EXIT_ONE_CONTEXT){
-        decrementRunningContexts();
-
-        toContext = getChangedNextContext(fromContext);
-        usedContexts = deleteContext(fromContext,usedContexts);
-        hasExit = 1;
-      }
+        //checks if only one context exited
+        else if(tempHandleSystemCall == EXIT_ONE_CONTEXT){
+          toContext = handleExitOneContext(fromContext);
+          hasExit = 1;
+        }
     }
 
     if(hasExit==0) {
