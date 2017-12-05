@@ -21,6 +21,100 @@ test: selfie
 	diff -q selfie1.s selfie3.s
 	./selfie -c selfie.c -m 4 -c manuscript/code/hello-world.c -x 2
 	./selfie -c selfie.c -m 4 -c manuscript/code/hello-world.c -z 2
+	./selfie -c manuscript/code/thread.c -m 2 | grep 'exiting with exit code 2'
+	./selfie -c selfie.c -m 4 -c manuscript/code/thread.c -m 2 | grep 'exiting with exit code 2' # exits with exit code 1 and 2
+	./selfie -c selfie.c -m 4 -c manuscript/code/thread.c -y 2 | grep 'exiting with exit code 2' # exits with exit code 1 and 2
+	./selfie -c selfie.c -m 4 -c manuscript/code/thread.c -x 2 | grep 'exiting with exit code 1' # exits with exit code 1 1 1 1
+	./selfie -c selfie.c -m 4 -c manuscript/code/thread.c -z 2 | grep 'exiting with exit code 2' # exits with exit code 2 2 2 2
+	./selfie -c manuscript/code/thread_with_lock.c -m 2 | grep 'exiting with exit code 2' #bonus, prevent from race conditions with syscall lock
+	./selfie -c selfie.c -m 4 -c manuscript/code/thread_with_lock.c -m 2 | grep 'exiting with exit code 2' #bonus, prevent from race conditions with syscall lock
+
+test1: selfie
+	./selfie -c selfie.c -m 4 -c manuscript/code/fork_test1_assignment6.c -y 2 #should return 8 and 0
+test2: selfie
+	./selfie -c manuscript/code/fork_test1_assignment6.c -m 2 #the same as one
+test3: selfie
+	./selfie -c selfie.c -m 16 -c manuscript/code/fork_test1_assignment6.c -z 4 #should not work endless loop
+test4: selfie
+	./selfie -c selfie.c -x 16 -c manuscript/code/fork_test1_assignment6.c -m 4 #takes too much time with TIMESLICE
+test5: selfie
+	./selfie -c selfie.c -x 16 -c manuscript/code/fork_test1_assignment6.c -y 4 #works
+test6: selfie
+	./selfie -c selfie.c -x 16 -c manuscript/code/fork_test1_assignment6.c -x 4 #should not work endless loop
+test7: selfie
+	./selfie -c manuscript/code/fork_test1_assignment6.c -x 4 #should not work endless loop
+test8: selfie
+	./selfie -c selfie.c -m 4 -c manuscript/code/fork_test2_assignment6.c -y 2 #works
+test9: selfie
+	./selfie -c manuscript/code/fork_test2_assignment6.c -m 2 #works
+test10: selfie
+	./selfie -c manuscript/code/fork_test2_assignment6.c -x 2 #works
+test11: selfie
+	./selfie -c selfie.c -m 16 -c manuscript/code/fork_test2_assignment6.c -z 4 #works
+test12: selfie
+	./selfie -c selfie.c -x 16 -c manuscript/code/fork_test2_assignment6.c -m 4 #works
+test13: selfie
+	./selfie -c selfie.c -x 16 -c manuscript/code/fork_test2_assignment6.c -y 4 #works
+test14: selfie
+	./selfie -c selfie.c -x 16 -c manuscript/code/fork_test2_assignment6.c -x 4 #works
+test15: selfie
+	./selfie -c manuscript/code/fork_test2_assignment6.c -x 4 #works
+test16: selfie
+	./selfie -c selfie.c -m 32 -c manuscript/code/fork_test_assignment5.c -m 4 #works
+test17: selfie
+	./selfie -c manuscript/code/fork_test_assignment5.c -m 4 #works
+test18: selfie
+	./selfie -c selfie.c -m 16 -c manuscript/code/fork_test_assignment5.c -y 4 #works
+test19: selfie
+	./selfie -c selfie.c -m 16 -c manuscript/code/fork_test_assignment5.c -x 8 #works
+test20: selfie
+	./selfie -c manuscript/code/fork_test_assignment5.c -x 4 #works not
+test21: selfie
+	./selfie -c selfie.c -m 32 -c manuscript/code/fork_test_assignment5.c -z 8 #works
+test22: selfie
+	./selfie -c selfie.c -x 16 -c manuscript/code/fork_test_assignment5.c -m 4 #works
+test23: selfie
+	./selfie -c selfie.c -x 16 -c manuscript/code/fork_test_assignment5.c -y 8 #works
+test24: selfie
+	./selfie -c selfie.c -x 16 -c manuscript/code/fork_test_assignment5.c -x 8 #works
+test25: selfie
+	./selfie -c selfie.c -x 32 -c manuscript/code/fork_test_assignment5.c -z 16 #works very slow
+test26: selfie
+	./selfie -c selfie.c -m 4 -c manuscript/code/thread.c -m 2 #works
+test27: selfie
+	./selfie -c selfie.c -m 4 -c manuscript/code/thread.c -y 2 #works
+test28: selfie
+	./selfie -c selfie.c -m 4 -c manuscript/code/thread.c -x 2 #works
+test29: selfie
+	./selfie -c selfie.c -m 4 -c manuscript/code/thread.c -z 2 #works
+test30: selfie
+	./selfie -c selfie.c -x 8 -c manuscript/code/thread.c -m 4 #works
+test31: selfie
+	./selfie -c selfie.c -x 8 -c manuscript/code/thread.c -y 4 #works
+test32: selfie
+	./selfie -c selfie.c -x 8 -c manuscript/code/thread.c -x 4 #works
+test33: selfie
+	./selfie -c selfie.c -x 8 -c manuscript/code/thread.c -z 4 #works
+test34: selfie
+	./selfie -c manuscript/code/thread.c -m 2 | grep 'exiting with exit code 2' #works
+test35: selfie
+	./selfie -c manuscript/code/thread.c -x 2 #works
+test36: selfie
+	./selfie -c manuscript/code/thread1.c -m 2 #works
+test37: selfie
+	./selfie -c selfie.c -m 4 -c manuscript/code/thread1.c -y 2 #works
+test38: selfie
+	./selfie -c manuscript/code/thread3.c -m 4 #works
+test39: selfie
+	./selfie -c selfie.c -m 4 -c manuscript/code/thread3.c -y 2 #works
+test40: selfie
+	./selfie -c manuscript/code/thread4.c -m 4 #works
+test41: selfie
+	./selfie -c selfie.c -m 4 -c manuscript/code/thread4.c -y 2 #works
+test42: selfie
+	./selfie -c manuscript/code/thread_with_lock.c -m 2
+test43: selfie
+	./selfie -c selfie.c -m 4 -c manuscript/code/thread_with_lock.c -m 2
 
 # Test SAT solver
 sat: selfie
