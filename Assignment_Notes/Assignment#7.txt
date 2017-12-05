@@ -1,0 +1,237 @@
+Assignment7:
+
+First of all i want to explain my fork and thread world:
+if context exits i check this cases:
+1. case process is no forked child
+ 1.1 process is no parent and no main thread
+     - then this process exits normally and gets deleted
+ 1.2 process is no parent and main thread
+     - then this process exits normally, deletes all of his child threads(if exists) and gets deleted
+ 1.3 process is no parent and child thread
+     - then this process exits normally and gets deleted
+ 1.4 process is fork parent and no main thread
+     - then all direct child get set to no child
+       or if child is zombie delete it from usedContext list
+     - then this process exits normally and gets deleted
+ 1.5 process is fork parent and main thread
+     - then all direct child get set to no child
+       and if child is zombie delete it from usedContext list
+     - deletes all of his child threads(if exists) and gets deleted
+2. case process is forked child
+ 2.1 process is no parent and no main thread
+     - then this process gets set to ZOMBIE
+ 2.2 process is no parent and main thread
+     - then this process gets set to ZOMBIE, deletes all of his child thread(if exists)
+ 2.3 process is fork parent and no main thread
+     - then this process gets set to ZOMBIE
+     - then all direct child get set to no child
+       or if child is zombie delete it from usedContext list
+ 2.4 process is fork parent and main thread
+     - then this process gets set to ZOMBIE
+     - then all direct child get set to no child
+       or if child is zombie delete it from usedContext list
+     - deletes all of his child threads(if exists)
+
+kill: return 0 if context gets kill, -1 otherwise
+  1. if a fork child gets killed it gets set to zombie
+  2. if has living child threads, then all child thread gets deleted
+  3. if is fork parent 
+     - then all direct child get set to no child
+       or if child is zombie delete it from usedContext list
+
+wait: 
+  1. if no child found returns 0
+  2. if zombiechild found delete it from used context list
+  3. if no zombiechild, wait for it
+
+THREAD: 
+  a thread can only live with it's main thread (process)
+  if the main thread exits or gets killed all of his child threads gets killed.
+
+changes due Assignment#7:
+first of all i deleted my childlist.
+
+uint64_t* insertIntoChildList(uint64_t childPid, uint64_t* in);
+
+uint64_t* findChildByPid(uint64_t* childList, uint64_t pid);
+
+uint64_t* deleteFromChildList(uint64_t* child, uint64_t* from); 
+
+void printAllChildPids(uint64_t *childlist);
+
+deleted this procedures
+
+
+procedure:
+void emitThread() {
+  createSymbolTableEntry(LIBRARY_TABLE, (uint64_t*) "thread", 0, PROCEDURE, VOID_T, 0, binaryLength);
+
+  emitIFormat(OP_DADDIU, REG_ZR, REG_V0, SYSCALL_THREAD);
+  emitRFormat(OP_SPECIAL, 0, 0, 0, FCT_SYSCALL);
+
+  // jump back to caller, return value is in REG_V0
+  emitRFormat(OP_SPECIAL, REG_RA, 0, 0, FCT_JR);
+}
+changes: add this procedure to emit the thread syscall. 
+
+procedure:
+void implementThread(uint64_t* context) {
+
+  uint64_t* threadContext;
+  uint64_t threadID;
+
+  threadID = findHighestTidbyPid(getPid(context));
+  threadID = threadID + 1;
+
+  //create new thread context
+  threadContext = createContext(getParent(context), getVirtualContext(context));
+
+  incrementRunningContexts();
+
+  //copy thread context
+  copyThreadContext(context, threadContext);
+
+  //copy registers
+  copyRegister(context, threadContext);
+
+  //pagetabe
+  copyThreadPageTable(context, threadContext);
+
+  //set tid
+  setTid(threadContext, threadID);
+
+  //set to is thread to the threadContext
+  setIsThread(threadContext, 1);
+
+  //and also set is thread to the context which threaded
+  setIsThread(context, 1);
+
+  if(debug_thread) {
+    println();
+    print((uint64_t*) "parent thread ");
+    printHexadecimal((uint64_t) context, 8);
+    print((uint64_t*) " with PID: ");
+    printInteger(getPid(context));
+    print((uint64_t*) " and TID: ");
+    printInteger(getTid(context));
+    print((uint64_t*) " created child thread ");
+    printHexadecimal((uint64_t) threadContext, 8);
+    print((uint64_t*) " with PID: ");
+    printInteger(getPid(threadContext));
+    print((uint64_t*) " and TID: ");
+    printInteger(getTid(threadContext));
+    println();
+  }
+
+}
+
+changes: add this procedure to implement the thread syscall
+ 
+procedures:
+void copyThreadContext(uint64_t* context, uint64_t* threadContext) {
+
+  //do not copy Lo,Me, Hi page, PT, REGS
+  setPC(threadContext,getPC(context));
+  setProgramBreak(threadContext, getProgramBreak(context));
+  setFaultingPage(threadContext, getFaultingPage(context));
+  setExitCode(threadContext, getExitCode(context));
+  setParent(threadContext, getParent(context));
+  setVirtualContext(threadContext, getVirtualContext(context));
+  setName(threadContext, getName(context));
+  //must be the same PID
+  setPid(threadContext, getPid(context));
+  //also set the fork parent, needed for kill
+  setForkParent(threadContext, getForkParent(context));
+}
+
+void copyThreadPageTable(uint64_t* context, uint64_t* threadContext) {
+
+  uint64_t pageIndex;
+  uint64_t vaddr;
+
+  pageIndex = 0;
+
+
+  while(pageIndex <= getMePage(context)) {
+
+    if(isPageMapped(getPT(context), pageIndex)) {
+         vaddr = pageIndex * PAGESIZE;
+         mapPage(threadContext, pageIndex, getFrameForPage(getPT(context),pageIndex));
+    }
+    pageIndex = pageIndex + 1;
+  }
+
+  pageIndex = getPageOfVirtualAddress(VIRTUALMEMORYSIZE - REGISTERSIZE);
+
+  while(pageIndex >= getHiPage(context)) {
+    if(isPageMapped(getPT(context), pageIndex)) {
+
+         mapPage(threadContext, pageIndex, (uint64_t) palloc());
+         vaddr = pageIndex * PAGESIZE;
+
+         while(vaddr < (pageIndex + 1) * PAGESIZE) {
+           storeVirtualMemory(getPT(threadContext), vaddr, loadVirtualMemory(getPT(context),vaddr));
+           vaddr = vaddr + SIZEOFUINT64STAR;
+         }
+    }
+    pageIndex = pageIndex - 1;
+  }
+}
+
+changes: important here is to map from code to heap segment and to map and store only the stack
+
+procedure:
+void mapAllThreadPages(uint64_t* context) {
+  uint64_t pid;
+  uint64_t* threadContext;
+
+  //get pid of context
+  pid = getPid(context);
+  threadContext = usedContexts;
+
+  while(threadContext != (uint64_t*) 0) {
+    //if pid is the same as from original context
+    if(getPid(threadContext)== pid) {
+      if(threadContext != context){
+        //if is a threadContext
+        if(getIsThread(threadContext) == 1) {
+          mapPage(threadContext, getFaultingPage(context), getFrameForPage(getPT(context), getFaultingPage(context)));
+          setProgramBreak(threadContext, getProgramBreak(context));
+        }
+      }
+    }
+    threadContext = getNextContext(threadContext);
+  }
+}
+
+changes: if one thread mallocs, then all other threads have to map there pages and set the programm break in the same way as the thread which malloced, due to 
+the reason we use the same memory.
+
+The reason why we can different outputs belongs to different timeout. (interrupts)
+
+In our example:
+parent thread 0x5627BDB3E130 with PID: 1 and TID: 0 created child thread 0x5627BDB3E300 with PID: 1 and TID: 1
+./selfie: switched from context 0x5627BDB3E130 Name: manuscript/code/thread.c to context 0x5627BDB3E300 Name: manuscript/code/thread.c to execute 6 instructions
+manuscript/code/thread.c: $pc=0x204(~1): 0x03E00008: jr $ra: $ra=0x230 -> $pc=0x230
+manuscript/code/thread.c: $pc=0x230(~7): 0x64020000: daddiu $v0,$zero,0: $v0=4011,$zero=0 -> $v0=0
+manuscript/code/thread.c: $pc=0x234(~8): 0xDF88FFF8: ld $t0,-8($gp): $t0=0,$gp=0x278 -> $t0=0=memory[0x270]
+manuscript/code/thread.c: $pc=0x238(~8): 0x64090001: daddiu $t1,$zero,1: $t1=16384,$zero=0 -> $t1=1
+manuscript/code/thread.c: $pc=0x23C(~8): 0x0109402D: daddu $t0,$t0,$t1: $t0=0,$t0=0,$t1=1 -> $t0=1
+manuscript/code/thread.c: $pc=0x240(~8): 0xFF88FFF8: sd $t0,-8($gp): $t0=1,$gp=0x278 -> memory[0x270]=1=$t0
+./selfie: switched from context 0x5627BDB3E300 Name: manuscript/code/thread.c to context 0x5627BDB3E130 Name: manuscript/code/thread.c to execute 6 instructions
+manuscript/code/thread.c: $pc=0x204(~1): 0x03E00008: jr $ra: $ra=0x230 -> $pc=0x230
+manuscript/code/thread.c: $pc=0x230(~7): 0x64020000: daddiu $v0,$zero,0: $v0=4011,$zero=0 -> $v0=0
+manuscript/code/thread.c: $pc=0x234(~8): 0xDF88FFF8: ld $t0,-8($gp): $t0=0,$gp=0x278 -> $t0=1=memory[0x270]
+manuscript/code/thread.c: $pc=0x238(~8): 0x64090001: daddiu $t1,$zero,1: $t1=16384,$zero=0 -> $t1=1
+manuscript/code/thread.c: $pc=0x23C(~8): 0x0109402D: daddu $t0,$t0,$t1: $t0=1,$t0=1,$t1=1 -> $t0=2
+manuscript/code/thread.c: $pc=0x240(~8): 0xFF88FFF8: sd $t0,-8($gp): $t0=2,$gp=0x278 -> memory[0x270]=2=$t0
+./selfie: switched from context 0x5627BDB3E130 Name: manuscript/code/thread.c to context 0x5627BDB3E300 Name: manuscript/code/thread.c to execute 6 instructions
+
+
+if we set the timeout in mipster to 6 instructions: 
+ - then after executing this 6 instructions it switches the context end writes to the same memory again. This is the reason why we have two different return values, 
+   because it counts up the values before exiting the child thread.
+
+BONUS: Can we use current system calls to prevent from race conditions ? Propose a (running) test file to answer to the bonus.
+Yes we can do that with the fork syscall, because this will make sure, that only one thread can access memory at a given time.
+I also provided a testfile, which prevent race conditions.

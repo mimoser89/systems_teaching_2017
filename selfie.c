@@ -90,10 +90,9 @@ uint64_t* malloc(uint64_t size);
 void lock();
 void unlock();
 uint64_t fork();
-uint64_t kill();
+uint64_t kill(uint64_t pid);
 uint64_t wait();
 void thread();
-
 
 // -----------------------------------------------------------------
 // ----------------------- LIBRARY PROCEDURES ----------------------
@@ -874,7 +873,6 @@ void implementWait(uint64_t* context);
 
 uint64_t* lookForChildren(uint64_t* context);
 uint64_t* lookForZombieChildren(uint64_t* context);
-void helpWaitDeleteThreads(uint64_t pid);
 
 void emitThread();
 void implementThread(uint64_t* context);
@@ -1324,7 +1322,7 @@ uint64_t isBootLevelZero();
 uint64_t handleSystemCalls(uint64_t* context);
 
 void handleThreadDelete(uint64_t* context);
-uint64_t handleParentExit(uint64_t* context);
+void handleParentExit(uint64_t* context);
 uint64_t checkIsParent(uint64_t* fromContext);
 uint64_t* handleExitOneContext(uint64_t* fromContext);
 
@@ -5511,16 +5509,19 @@ void implementKill(uint64_t* context) {
 
       //looks if contextToKill is own child
       if(getForkParent(contextToKill) == context) {
+
           //if contextToKill is a context with threads
           //then find all child threads with this pid
           //and delete all from usedContexts, expect the "main thread with tid0"
           if(isThread(contextToKill)) {
             helpKillContextWithThreads(pid);
           }
-
-          //if context is no zombie yet
-          if(getStatus(contextToKill) != ZOMBIE) {
             decrementRunningContexts();
+
+            //if context is parent
+            if(checkIsParent(contextToKill) == 1)
+              handleParentExit(contextToKill);
+
             //set status to ZOMBIE
             //do not delete from usedContexts, iterate over zombie child
             setStatus(contextToKill, ZOMBIE);
@@ -5545,13 +5546,6 @@ void implementKill(uint64_t* context) {
               printInteger(getPid(contextToKill));
               println();
             }
-          }
-          else {
-            println();
-            print((uint64_t*)"Context allready killed");
-            //set return value to -1
-            *(getRegs(context)+REG_V0) = -1;
-          }
       }
       else {
         println();
@@ -5686,35 +5680,6 @@ uint64_t* lookForZombieChildren(uint64_t* context) {
     zombieChild = getNextContext(zombieChild);
   }
   return (uint64_t*) 0;
-}
-
-//second option delete all thread childs
-void helpWaitDeleteThreads(uint64_t pid) {
-  uint64_t* context;
-  uint64_t* tempContext;
-
-  uint64_t hasDelete;
-
-  context = usedContexts;
-  while(context != (uint64_t*) 0) {
-    hasDelete = 0;
-    if(getPid(context) == pid) {
-      decrementRunningContexts();
-
-      //if this context has lock, remove it
-      if(CURRENT_LOCKED_CONTEXT == context) {
-        CURRENT_LOCKED_CONTEXT = (uint64_t*) 0;
-      }
-
-      tempContext = context;
-      context = getNextContext(context);
-      usedContexts = deleteContext(tempContext, usedContexts);
-      hasDelete = 1;
-    }
-    if(hasDelete == 0)
-      context = getNextContext(context);
-  }
-
 }
 
 void emitThread() {
@@ -6935,7 +6900,7 @@ uint64_t* allocateContext(uint64_t* parent, uint64_t* vctxt, uint64_t* in) {
   if (in != (uint64_t*) 0)
     setPrevContext(in, context);
 
-  setPC(context, 0); //a
+  setPC(context, 0);
 
   // allocate zeroed memory for general purpose registers
   // TODO: reuse memory
@@ -7574,7 +7539,7 @@ void handleThreadDelete(uint64_t* context) {
   }
 }
 
-uint64_t handleParentExit(uint64_t* context) {
+void handleParentExit(uint64_t* context) {
 
   uint64_t* child;
   child = usedContexts;
@@ -7595,7 +7560,7 @@ uint64_t handleParentExit(uint64_t* context) {
       }
     child = getNextContext(child);
   }
-  return 0;
+
 }
 
 uint64_t checkIsParent(uint64_t* fromContext) {
@@ -7616,13 +7581,8 @@ uint64_t checkIsParent(uint64_t* fromContext) {
 uint64_t* handleExitOneContext(uint64_t* fromContext) {
 
   uint64_t* toContext;
-  uint64_t* tempFromContext;
-  uint64_t isParent;
 
-  tempFromContext = fromContext;
   decrementRunningContexts();
-
-  //toContext = getChangedNextContext(fromContext);
 
   //check if context is child
   if(getIsChild(fromContext) == 1) {
@@ -7645,7 +7605,7 @@ uint64_t* handleExitOneContext(uint64_t* fromContext) {
     toContext = getChangedNextContext(fromContext);
 
   }
-  //is no child, could be parent
+  //is no forked child, could be fork parent
   else {
     //check if context is parent
     if(checkIsParent(fromContext) == 1)
@@ -7658,7 +7618,7 @@ uint64_t* handleExitOneContext(uint64_t* fromContext) {
         handleThreadDelete(fromContext);
       }
     }
-    //if it's "thread-child" delete it
+
     toContext = getChangedNextContext(fromContext);
     usedContexts = deleteContext(fromContext, usedContexts);
   }
@@ -7701,7 +7661,7 @@ uint64_t mipster(uint64_t* toContext) {
   println();
 
   debug_switch = 0;
-  debug = 0;
+  //debug = 0;
 
   timeout = TIMESLICE;
 
@@ -7709,7 +7669,7 @@ uint64_t mipster(uint64_t* toContext) {
 
     hasExit = 0;
     //first time switches to the self context
-    fromContext = mipster_switch(toContext, timeout);
+    fromContext = mipster_switch(toContext, TIMESLICE);
 
     if (getParent(fromContext) != MY_CONTEXT) {
       // switch to parent which is in charge of handling exceptions
