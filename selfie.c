@@ -93,6 +93,7 @@ uint64_t fork();
 uint64_t kill(uint64_t pid);
 uint64_t wait();
 void thread();
+uint64_t compare_and_swap(uint64_t* ptrShared, uint64_t old, uint64_t new);
 
 // -----------------------------------------------------------------
 // ----------------------- LIBRARY PROCEDURES ----------------------
@@ -880,6 +881,9 @@ void implementThread(uint64_t* context);
 void copyThreadContext(uint64_t* context, uint64_t* threadContext);
 void copyThreadPageTable(uint64_t* context, uint64_t* threadContext);
 
+void emitCompare_and_swap();
+void implementCompare_and_swap(uint64_t* context);
+
 
 // ------------------------ GLOBAL CONSTANTS -----------------------
 
@@ -916,6 +920,9 @@ uint64_t debug_wait = 1;
 
 uint64_t SYSCALL_THREAD = 4011;
 uint64_t debug_thread = 1;
+
+uint64_t SYSCALL_COMPARE_AND_SWAP = 4012;
+uint64_t debug_Compare_and_swap = 1;
 
 
 // -----------------------------------------------------------------
@@ -1277,7 +1284,7 @@ void restoreContext(uint64_t* context);
 
 // ------------------------ GLOBAL CONSTANTS -----------------------
 
-uint64_t debug_create = 0;
+uint64_t debug_create = 1;
 uint64_t debug_map    = 0;
 
 // ------------------------ GLOBAL VARIABLES -----------------------
@@ -4214,6 +4221,8 @@ void selfie_compile() {
 
   emitThread();
 
+  emitCompare_and_swap();
+
   while (link) {
     if (numberOfRemainingArguments() == 0)
       link = 0;
@@ -5792,6 +5801,91 @@ void copyThreadPageTable(uint64_t* context, uint64_t* threadContext) {
   }
 }
 
+void emitCompare_and_swap() {
+
+  createSymbolTableEntry(LIBRARY_TABLE, (uint64_t*) "compare_and_swap", 0, PROCEDURE, UINT64_T, 0, binaryLength);
+
+  emitIFormat(OP_LD, REG_SP, REG_A2, 0); // new value
+  emitIFormat(OP_DADDIU, REG_SP, REG_SP, REGISTERSIZE);
+
+  emitIFormat(OP_LD, REG_SP, REG_A1, 0); // old value
+  emitIFormat(OP_DADDIU, REG_SP, REG_SP, REGISTERSIZE);
+
+  emitIFormat(OP_LD, REG_SP, REG_A0, 0); // pointer
+  emitIFormat(OP_DADDIU, REG_SP, REG_SP, REGISTERSIZE);
+
+  emitIFormat(OP_DADDIU, REG_ZR, REG_V0, SYSCALL_COMPARE_AND_SWAP);
+  emitRFormat(OP_SPECIAL, 0, 0, 0, FCT_SYSCALL);
+
+  emitRFormat(OP_SPECIAL, REG_RA, 0, 0, FCT_JR);
+}
+
+void implementCompare_and_swap(uint64_t* context) {
+
+  uint64_t vaddr;
+  uint64_t memoryValue;
+  uint64_t oldValue;
+  uint64_t newValue;
+  uint64_t success;
+
+  success = 1;
+
+  //get virtual address of pointer to (shared) memory
+  vaddr = *(getRegs(context) + REG_A0);
+  //get old value
+  oldValue = *(getRegs(context) + REG_A1);
+  //get new value
+  newValue = *(getRegs(context) + REG_A2);
+
+  if(isValidVirtualAddress(vaddr)) {
+    if(isVirtualAddressMapped(getPT(context), vaddr)) {
+      memoryValue = loadVirtualMemory(getPT(context), vaddr);
+    }
+    else {
+      //return -1 if virtual address is not mapped
+      *(getRegs(context)+REG_V0) = -1;
+      success = 0;
+    }
+  }
+  else {
+    //return -1 if is no valid virtual address
+    *(getRegs(context)+REG_V0) = -1;
+    success = 0;
+  }
+
+  if(success == 1) {
+    //if memory Value = old Value, set new Value and return 1, 0 otherwise
+    if(memoryValue == oldValue) {
+      storeVirtualMemory(getPT(context), vaddr, newValue);
+      //return 1
+      *(getRegs(context)+REG_V0) = 1;
+    }
+    else {
+      //return 0
+      *(getRegs(context)+REG_V0) = 0;
+      success = 0;
+    }
+  }
+
+  if(debug_Compare_and_swap) {
+    println();
+    print((uint64_t*) "Compare_and_Swap context ");
+    printHexadecimal((uint64_t) context, 8);
+    print((uint64_t*) " with PID: ");
+    printInteger(getPid(context));
+    print((uint64_t*) " and TID: ");
+    printInteger(getTid(context));
+    if(success == 1) {
+      print((uint64_t*) " succeeded ");
+    }
+    else {
+      print((uint64_t*) " not succeeded ");
+    }
+    println();
+  }
+
+}
+
 // -----------------------------------------------------------------
 // ----------------------- HYPSTER SYSCALLS ------------------------
 // -----------------------------------------------------------------
@@ -5813,7 +5907,7 @@ void emitSwitch() {
 
   emitRFormat(OP_SPECIAL, REG_RA, 0, 0, FCT_JR);
 }
-
+//cached context = toContext
 void doSwitch(uint64_t* toContext, uint64_t timeout) {
   uint64_t* fromContext;
 
@@ -7480,6 +7574,8 @@ uint64_t handleSystemCalls(uint64_t* context) {
       implementWait(context);
     } else if (v0 == SYSCALL_THREAD) {
       implementThread(context);
+    } else if (v0 == SYSCALL_COMPARE_AND_SWAP) {
+      implementCompare_and_swap(context);
     } else if (v0 == SYSCALL_EXIT) {
       //if there are more then one contexts running
       //return the new variable EXIT_ONE_CONTEXT
@@ -7660,8 +7756,8 @@ uint64_t mipster(uint64_t* toContext) {
   print((uint64_t*) "Mipster");
   println();
 
-  debug_switch = 0;
-  //debug = 0;
+   debug_switch = 0;
+   //debug = 0;
 
   timeout = TIMESLICE;
 
@@ -7669,7 +7765,7 @@ uint64_t mipster(uint64_t* toContext) {
 
     hasExit = 0;
     //first time switches to the self context
-    fromContext = mipster_switch(toContext, TIMESLICE);
+    fromContext = mipster_switch(toContext, timeout);
 
     if (getParent(fromContext) != MY_CONTEXT) {
       // switch to parent which is in charge of handling exceptions

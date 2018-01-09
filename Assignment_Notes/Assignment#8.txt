@@ -1,0 +1,101 @@
+Assignment8:
+
+procedure:
+void emitCompare_and_swap() {
+
+  createSymbolTableEntry(LIBRARY_TABLE, (uint64_t*) "compare_and_swap", 0, PROCEDURE, UINT64_T, 0, binaryLength);
+
+  emitIFormat(OP_LD, REG_SP, REG_A2, 0); // new value
+  emitIFormat(OP_DADDIU, REG_SP, REG_SP, REGISTERSIZE);
+
+  emitIFormat(OP_LD, REG_SP, REG_A1, 0); // old value
+  emitIFormat(OP_DADDIU, REG_SP, REG_SP, REGISTERSIZE);
+
+  emitIFormat(OP_LD, REG_SP, REG_A0, 0); // pointer
+  emitIFormat(OP_DADDIU, REG_SP, REG_SP, REGISTERSIZE);
+
+  emitIFormat(OP_DADDIU, REG_ZR, REG_V0, SYSCALL_COMPARE_AND_SWAP);
+  emitRFormat(OP_SPECIAL, 0, 0, 0, FCT_SYSCALL);
+
+  emitRFormat(OP_SPECIAL, REG_RA, 0, 0, FCT_JR);
+}
+
+changes: add this method to emit instructions
+
+procedure:
+void implementCompare_and_swap(uint64_t* context) {
+
+  uint64_t vaddr;
+  uint64_t memoryValue;
+  uint64_t oldValue;
+  uint64_t newValue;
+  uint64_t success;
+  success = 1;
+
+  //get virtual address of pointer to (shared) memory
+  vaddr = *(getRegs(context) + REG_A0);
+  //get old value
+  oldValue = *(getRegs(context) + REG_A1);
+  //get new value
+  newValue = *(getRegs(context) + REG_A2);
+
+  if(isValidVirtualAddress(vaddr)) {
+    if(isVirtualAddressMapped(getPT(context), vaddr)) {
+      memoryValue = loadVirtualMemory(getPT(context), vaddr);
+    }
+    else {
+      //return -1 if virtual address is not mapped
+      *(getRegs(context)+REG_V0) = -1;
+      success = 0;
+    }
+  }
+  else {
+    //return -1 if is no valid virtual address
+    *(getRegs(context)+REG_V0) = -1;
+    success = 0;
+  }
+
+  if(success == 1) {
+    //if memory Value = old Value, set new Value and return 1, 0 otherwise
+    if(memoryValue == oldValue) {
+      storeVirtualMemory(getPT(context), vaddr, newValue);
+      //return 1
+      *(getRegs(context)+REG_V0) = 1;
+    }
+    else {
+      //return 0
+      *(getRegs(context)+REG_V0) = 0;
+      success = 0;
+    }
+  }
+
+
+  if(debug_Compare_and_swap) {
+    println();
+    print((uint64_t*) "Compare_and_Swap context ");
+    printHexadecimal((uint64_t) context, 8);
+    print((uint64_t*) " with PID: ");
+    printInteger(getPid(context));
+    print((uint64_t*) " and TID: ");
+    printInteger(getTid(context));
+    if(success == 1) {
+      print((uint64_t*) " succeeded ");
+    }
+    else {
+      print((uint64_t*) " not succeeded ");
+    }
+
+    println();
+  }
+
+}
+
+changes: add this method to implement compare and swap. first of all i take the values of the argument registers. Then i checked if the pointer is a valid virtual address. If not i returned -1. 
+I also checked if this virtual address is mapped. if this is the case i go on. Otherwise i returned -1 too. 
+Finally i proved if the value of the pointer is equal the old value. If true, i set the new value and stored the value in memory. (storeVirtualMemory). Otherwise i returned 0.
+
+BONUS: For the bonus i uploaded a little testfile.
+
+
+
+

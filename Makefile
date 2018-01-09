@@ -21,13 +21,15 @@ test: selfie
 	diff -q selfie1.s selfie3.s
 	./selfie -c selfie.c -m 4 -c manuscript/code/hello-world.c -x 2
 	./selfie -c selfie.c -m 4 -c manuscript/code/hello-world.c -z 2
-	./selfie -c manuscript/code/thread.c -m 2 | grep 'exiting with exit code 2'
-	./selfie -c selfie.c -m 4 -c manuscript/code/thread.c -m 2 | grep 'exiting with exit code 2' # exits with exit code 1 and 2
-	./selfie -c selfie.c -m 4 -c manuscript/code/thread.c -y 2 | grep 'exiting with exit code 2' # exits with exit code 1 and 2
-	./selfie -c selfie.c -m 4 -c manuscript/code/thread.c -x 2 | grep 'exiting with exit code 1' # exits with exit code 1 1 1 1
-	./selfie -c selfie.c -m 4 -c manuscript/code/thread.c -z 2 | grep 'exiting with exit code 2' # exits with exit code 2 2 2 2
-	./selfie -c manuscript/code/thread_with_lock.c -m 2 | grep 'exiting with exit code 2' #bonus, prevent from race conditions with syscall lock
-	./selfie -c selfie.c -m 4 -c manuscript/code/thread_with_lock.c -m 2 | grep 'exiting with exit code 2' #bonus, prevent from race conditions with syscall lock
+	./selfie -c manuscript/code/thread.c -m 2 | grep 'exit code 2'
+	./selfie -c selfie.c -m 4 -c manuscript/code/thread.c -m 2 | grep 'exit code 2' # exits with exit code 1 and 2
+	./selfie -c selfie.c -m 4 -c manuscript/code/thread.c -y 2 | grep 'exit code 2' # exits with exit code 1 and 2
+	./selfie -c selfie.c -m 4 -c manuscript/code/thread.c -x 2 | grep 'exit code 1' # exits with exit code 1 1 1 1
+	./selfie -c selfie.c -m 4 -c manuscript/code/thread.c -z 2 | grep 'exit code 2' # exits with exit code 2 2 2 2
+	./selfie -c manuscript/code/thread_with_lock.c -m 2 | grep 'exit code 2' #bonus, prevent from race conditions with syscall lock
+	./selfie -c selfie.c -m 4 -c manuscript/code/thread_with_lock.c -m 2 | grep 'exit code 2' #bonus, prevent from race conditions with syscall lock
+	./selfie -c manuscript/code/test_compare_and_swap.c -m 2
+	./selfie -c manuscript/code/test_compare_and_swap.c -x 2
 
 test1: selfie
 	./selfie -c selfie.c -m 4 -c manuscript/code/fork_test1_assignment6.c -y 2 #should return 8 and 0
@@ -96,7 +98,7 @@ test32: selfie
 test33: selfie
 	./selfie -c selfie.c -x 8 -c manuscript/code/thread.c -z 4 #works
 test34: selfie
-	./selfie -c manuscript/code/thread.c -m 2 | grep 'exiting with exit code 2' #works
+	./selfie -c manuscript/code/thread.c -m 2  #works
 test35: selfie
 	./selfie -c manuscript/code/thread.c -x 2 #works
 test36: selfie
