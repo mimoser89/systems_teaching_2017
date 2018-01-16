@@ -922,7 +922,7 @@ uint64_t SYSCALL_THREAD = 4011;
 uint64_t debug_thread = 1;
 
 uint64_t SYSCALL_COMPARE_AND_SWAP = 4012;
-uint64_t debug_Compare_and_swap = 1;
+uint64_t debug_Compare_and_swap = 0;
 
 
 // -----------------------------------------------------------------
@@ -5270,6 +5270,7 @@ uint64_t implementMalloc(uint64_t* context) {
   uint64_t size;
   uint64_t bump;
   uint64_t stackptr;
+  uint64_t* next;
 
   if (debug_malloc) {
     print(selfieName);
@@ -5293,6 +5294,16 @@ uint64_t implementMalloc(uint64_t* context) {
     *(getRegs(context)+REG_V0) = bump;
 
     setProgramBreak(context, bump + size);
+
+    next = usedContexts;
+
+    //make malloc thread safe
+    while (next != (uint64_t*) 0) {
+     if (getPid(context) == getPid(next))
+       setProgramBreak(next, getProgramBreak(context));
+
+     next = getNextContext(next);
+   }
 
     if (debug_malloc) {
       print(selfieName);
@@ -5733,7 +5744,7 @@ void implementThread(uint64_t* context) {
   setIsThread(context, 1);
 
   if(debug_thread) {
-    println();
+
     print((uint64_t*) "parent thread ");
     printHexadecimal((uint64_t) context, 8);
     print((uint64_t*) " with PID: ");
@@ -7575,7 +7586,7 @@ uint64_t handleSystemCalls(uint64_t* context) {
     } else if (v0 == SYSCALL_THREAD) {
       implementThread(context);
     } else if (v0 == SYSCALL_COMPARE_AND_SWAP) {
-      implementCompare_and_swap(context);
+        implementCompare_and_swap(context);
     } else if (v0 == SYSCALL_EXIT) {
       //if there are more then one contexts running
       //return the new variable EXIT_ONE_CONTEXT

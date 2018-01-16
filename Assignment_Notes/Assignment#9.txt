@@ -1,0 +1,38 @@
+Assignment9:
+
+procedure:
+uint64_t implementMalloc(uint64_t* context) { 
+	.
+	.
+	.
+	.
+	    //make malloc thread safe
+	    while (next != (uint64_t*) 0) {
+	     if (getPid(context) == getPid(next))
+	       setProgramBreak(next, getProgramBreak(context));
+
+	     next = getNextContext(next);
+	    }
+	.
+	.
+}
+
+changes: makes malloc thread-safe
+
+I added comments in the concurrent_stack.c how i implemented the Treiber Stack. 
+I also provided a little test in the main procedure.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

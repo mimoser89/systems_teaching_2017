@@ -30,6 +30,8 @@ test: selfie
 	./selfie -c selfie.c -m 4 -c manuscript/code/thread_with_lock.c -m 2 | grep 'exit code 2' #bonus, prevent from race conditions with syscall lock
 	./selfie -c manuscript/code/test_compare_and_swap.c -m 2
 	./selfie -c manuscript/code/test_compare_and_swap.c -x 2
+	./selfie -c manuscript/code/concurrent_stack.c selfie.c -x 8
+	./selfie -c manuscript/code/concurrent_stack.c selfie.c -m 8
 
 test1: selfie
 	./selfie -c selfie.c -m 4 -c manuscript/code/fork_test1_assignment6.c -y 2 #should return 8 and 0
