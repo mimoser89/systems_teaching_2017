@@ -16,7 +16,7 @@
 // resolve self-reference in systems code which is seen as the key
 // challenge when teaching systems engineering, hence the name.
 //
-// Selfie is a fully self-referential 7k-line C implementation of:
+// Selfie is a fully self-referential f7k-line C implementation of:
 //
 // 1. a self-compiling compiler called starc that compiles
 //    a tiny but powerful subset of C called C Star (C*) to
@@ -89,11 +89,12 @@ uint64_t  open(uint64_t* filename, uint64_t flags, uint64_t mode);
 uint64_t* malloc(uint64_t size);
 void lock();
 void unlock();
-uint64_t fork();
+uint64_t selfie_fork();
 uint64_t kill(uint64_t pid);
 uint64_t wait();
 void thread();
 uint64_t compare_and_swap(uint64_t* ptrShared, uint64_t old, uint64_t new);
+uint64_t fork();
 
 // -----------------------------------------------------------------
 // ----------------------- LIBRARY PROCEDURES ----------------------
@@ -858,8 +859,8 @@ void implementUnlock(uint64_t* context);
 uint64_t hasLock(uint64_t* context);
 void contextWait(uint64_t* context);
 
-void emitFork();
-void implementFork(uint64_t* context);
+void emitSelfie_Fork();
+void implementSelfie_Fork(uint64_t* context);
 
 void copyContext(uint64_t* context, uint64_t* forkedContext);
 void copyRegister(uint64_t* context, uint64_t* forkedContext);
@@ -884,6 +885,9 @@ void copyThreadPageTable(uint64_t* context, uint64_t* threadContext);
 void emitCompare_and_swap();
 void implementCompare_and_swap(uint64_t* context);
 
+void emitFork();
+void implementFork(uint64_t* context);
+
 
 // ------------------------ GLOBAL CONSTANTS -----------------------
 
@@ -905,9 +909,8 @@ uint64_t SYSCALL_UNLOCK = 4007;
 
 uint64_t* CURRENT_LOCKED_CONTEXT = (uint64_t*) 0;
 
-uint64_t SYSCALL_FORK = 4008;
-
-uint64_t debug_fork = 1;
+uint64_t SYSCALL_SELFIE_FORK = 4008;
+uint64_t debug_selfie_fork = 1;
 
 uint64_t old_PID = 1;
 uint64_t new_PID;
@@ -923,6 +926,8 @@ uint64_t debug_thread = 1;
 
 uint64_t SYSCALL_COMPARE_AND_SWAP = 4012;
 uint64_t debug_Compare_and_swap = 0;
+
+uint64_t SYSCALL_FORK = 4013;
 
 
 // -----------------------------------------------------------------
@@ -4213,7 +4218,7 @@ void selfie_compile() {
   emitLock();
   emitUnlock();
 
-  emitFork();
+  emitSelfie_Fork();
 
   emitKill();
 
@@ -4222,6 +4227,8 @@ void selfie_compile() {
   emitThread();
 
   emitCompare_and_swap();
+
+  emitFork();
 
   while (link) {
     if (numberOfRemainingArguments() == 0)
@@ -5373,16 +5380,16 @@ void contextWait(uint64_t* context) {
   setPC(context,tempPC);
 }
 
-void emitFork() {
-  createSymbolTableEntry(LIBRARY_TABLE, (uint64_t*) "fork", 0, PROCEDURE, UINT64_T, 0, binaryLength);
+void emitSelfie_Fork() {
+  createSymbolTableEntry(LIBRARY_TABLE, (uint64_t*) "selfie_fork", 0, PROCEDURE, UINT64_T, 0, binaryLength);
 
-  emitIFormat(OP_DADDIU, REG_ZR, REG_V0, SYSCALL_FORK);
+  emitIFormat(OP_DADDIU, REG_ZR, REG_V0, SYSCALL_SELFIE_FORK);
   emitRFormat(OP_SPECIAL, 0, 0, 0, FCT_SYSCALL);
 
   emitRFormat(OP_SPECIAL, REG_RA, 0, 0, FCT_JR);
 }
 
-void implementFork(uint64_t* context) {
+void implementSelfie_Fork(uint64_t* context) {
 
   uint64_t* forkedContext;
 
@@ -5417,7 +5424,7 @@ void implementFork(uint64_t* context) {
 
   *(getRegs(forkedContext)+REG_V0) = 0;
 
-  if(debug_fork) {
+  if(debug_selfie_fork) {
     println();
     print((uint64_t*) "parent context ");
     printHexadecimal((uint64_t) context, 8);
@@ -5894,6 +5901,22 @@ void implementCompare_and_swap(uint64_t* context) {
     }
     println();
   }
+
+}
+
+void emitFork() {
+  createSymbolTableEntry(LIBRARY_TABLE, (uint64_t*) "fork", 0, PROCEDURE, UINT64_T, 0, binaryLength);
+
+  emitIFormat(OP_DADDIU, REG_ZR, REG_V0, SYSCALL_FORK);
+  emitRFormat(OP_SPECIAL, 0, 0, 0, FCT_SYSCALL);
+
+  emitRFormat(OP_SPECIAL, REG_RA, 0, 0, FCT_JR);
+}
+
+void implementFork(uint64_t* context) {
+
+  //call fork() from unix os and store pid of unix syscall
+  *(getRegs(context)+REG_V0) = fork();
 
 }
 
@@ -7577,6 +7600,8 @@ uint64_t handleSystemCalls(uint64_t* context) {
         implementUnlock(context);
       else
         contextWait(context);
+    } else if (v0 == SYSCALL_SELFIE_FORK) {
+      implementSelfie_Fork(context);
     } else if (v0 == SYSCALL_FORK) {
       implementFork(context);
     }else if (v0 == SYSCALL_KILL) {

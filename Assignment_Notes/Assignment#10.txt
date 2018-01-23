@@ -1,0 +1,36 @@
+Assignment10:
+In this assignment, i took the existing system call fork and i replaced the existing implementation with the unix system call fork.
+I also saved for test cases, the pid which i get from the unix system in v0 return register. I renamed the old syscall in fork_selfie, so that i can use the "selfie" fork 
+in future.
+
+I tested this properly in a test file, in which i called forked and compared this with the linux task manager. And so i saw that there where to processes (with the right pid) 
+are running on my system in parallel. You also can see that two cores works with 100% each after a certain amount of time.
+
+I also provided two sceenshots where you can see that this syscall work properly.
+1. test was with mipster: 
+in the screenshot mipster.jpg you can see the console and the task manager. When you compare
+the PID you can see that the console returns the same PID as seen in the task manager.
+
+2. test was on hypster on top of two mipsters:
+Here i provided three sreenshots: 
+	- hypster_console.jpg
+	- hypster_cpu.jpg
+	- hypster_taks.jpg
+Here you also can see the console and the task manager. And you see in hypster_cpu.jpg that there are running two cores with 100% power each.
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
